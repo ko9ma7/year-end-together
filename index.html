@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#172d28">
+  <meta name="description" content="모두가 가능한 날을 쉽게 찾아요. 연말 모임 공지를 확인하고 달력에서 여러 날짜를 선택해 주세요.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="모두의 연말 | 우리에게 맞는 모임 날짜 찾기">
+  <meta property="og:description" content="이름을 적고, 가능한 날짜를 골라주세요. 가장 많은 사람이 함께할 수 있는 날을 찾아드립니다.">
+  <meta property="og:site_name" content="모두의 연말">
+  <meta property="og:image" content="./assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="모두의 연말 | 연말 모임 일정 조율">
+  <meta name="twitter:description" content="가능한 날짜를 여러 개 선택하고 함께 모일 날을 찾아요.">
+  <meta name="twitter:image" content="./assets/og-image.png">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <title>모두의 연말 — 우리에게 맞는 모임 날짜 찾기</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"모두의 연말","description":"연말 모임 날짜를 함께 조율하는 웹 서비스","applicationCategory":"LifestyleApplication","operatingSystem":"Web","inLanguage":"ko"}</script>
+  <script src="./config.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <div id="app" aria-busy="true">
+    <div class="boot-loading"><div class="boot-mark">12<span>✳</span></div><p>연말 일정을 불러오는 중입니다…</p></div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

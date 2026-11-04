@@ -1,6 +1,7 @@
 /**
  * 모두의 연말 - Google Sheets 바인딩 Apps Script.
- * 반드시 편집 가능한 원본 스프레드시트에서 [확장 프로그램 > Apps Script]로 생성하세요.
+ * 최초 설정은 편집 가능한 원본 스프레드시트의 [확장 프로그램 > Apps Script]에서 진행하세요.
+ * setupSheets()가 원본 ID를 Script Properties에 저장하고, 웹 앱은 openById()로 접근합니다.
  * 게시용 /pubhtml URL은 여기서 열거나 쓰기 권한을 부여할 수 없습니다.
  *
  * 배포: 웹 앱 / 실행 사용자: 나 / 액세스 권한: 모든 사용자(Anyone).
@@ -25,10 +26,38 @@ const RESPONSE_HEADERS = [
   'ID','EVENT_ID','NAME','DATES_JSON','CREATED_AT','UPDATED_AT','TOKEN_HASH','STATUS'
 ];
 
-/** 최초 한 번, Apps Script 편집기에서 직접 실행합니다. */
+/** Google 실행 환경이 정상인지 확인하는 간단한 테스트입니다. */
+function testEnvironment() {
+  console.log('Apps Script 기본 실행 정상: ' + new Date().toISOString());
+  return 'OK';
+}
+
+/**
+ * 웹 앱으로 실행될 때는 활성 시트를 얻지 못할 수 있으므로,
+ * 설정 시 저장한 원본 스프레드시트 ID로만 열어 같은 파일을 읽고 씁니다.
+ */
+function getBook_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id) throw new Error('원본 스프레드시트 설정이 없습니다. 원본 시트의 Apps Script 편집기에서 setupSheets()를 먼저 실행하세요.');
+  return SpreadsheetApp.openById(id);
+}
+
+/** 연결된 원본 파일을 확인하기 위한 진단 함수(편집기에서만 실행). */
+function testSpreadsheetConnection() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  console.log('편집기에 연결된 스프레드시트: ' + (active ? active.getName() : '없음'));
+  const stored = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  console.log('등록된 시트 ID: ' + (stored ? '등록됨' : '미등록'));
+  if (!active && !stored) throw new Error('스프레드시트에서 [확장 프로그램 > Apps Script]로 프로젝트를 열어 주세요.');
+  const book = stored ? getBook_() : active;
+  console.log('접속한 스프레드시트 이름: ' + book.getName());
+  return book.getName();
+}
+
+/** 최초 한 번, 원본 스프레드시트에서 연 Apps Script 편집기에서 직접 실행합니다. */
 function setupSheets() {
   const book = SpreadsheetApp.getActiveSpreadsheet();
-  if (!book) throw new Error('편집 가능한 원본 스프레드시트에 연결된 Apps Script 프로젝트에서 실행하세요.');
+  if (!book) throw new Error('이 프로젝트가 원본 스프레드시트에 연결되어 있지 않습니다. 원본 스프레드시트 > 확장 프로그램 > Apps Script에서 열어 실행해 주세요.');
   const events = ensureSheet_(book, SETTINGS.eventsTab, EVENT_HEADERS);
   const responses = ensureSheet_(book, SETTINGS.responsesTab, RESPONSE_HEADERS);
 
@@ -37,7 +66,9 @@ function setupSheets() {
   responses.setFrozenRows(1);
   events.autoResizeColumns(1,EVENT_HEADERS.length);
   responses.autoResizeColumns(1,RESPONSE_HEADERS.length);
-  return 'EVENTS / RESPONSES 탭 준비 완료. 웹의 새 모임 만들기에서 모임마다 관리 비밀번호를 설정하세요.';
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', book.getId());
+  console.log('원본 시트 연결 완료: ' + book.getName());
+  return 'EVENTS / RESPONSES 탭 준비 및 시트 ID 등록 완료. 웹의 새 모임 만들기에서 모임마다 관리 비밀번호를 설정하세요.';
 }
 
 function ensureSheet_(book,name,headers) {
@@ -77,7 +108,7 @@ function parseDateList_(text) {
   return String(text).split(',').map(date=>formatIso_(date)).filter(Boolean);
 }
 function readEvents_() {
-  const book=SpreadsheetApp.getActiveSpreadsheet();
+  const book=getBook_();
   const sheet=book.getSheetByName(SETTINGS.eventsTab);
   if (!sheet) throw new Error('EVENTS 탭이 없습니다. 먼저 setupSheets()를 실행해 주세요.');
   const count=Math.max(sheet.getLastRow()-1,0);
@@ -96,7 +127,7 @@ function readEvents_() {
   }).filter(event=>event.id && event.status!=='DELETED' && isoValid_(event.startDate) && isoValid_(event.endDate) && event.endDate>=event.startDate && daysBetween_(event.startDate,event.endDate)<SETTINGS.maxAllowedDays);
 }
 function readResponses_(events) {
-  const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SETTINGS.responsesTab);
+  const sheet=getBook_().getSheetByName(SETTINGS.responsesTab);
   if(!sheet)throw new Error('RESPONSES 탭이 없습니다. setupSheets()를 실행해 주세요.');
   const count=Math.min(Math.max(0,sheet.getLastRow()-1),SETTINGS.maxResponses);
   if(!count)return [];
@@ -176,7 +207,7 @@ function saveResponse_(parameters) {
     if(!event)throw new Error('모임을 찾을 수 없습니다.');
     if(event.status!=='OPEN'||(event.deadline&&today_()>event.deadline))throw new Error('응답 마감된 모임입니다.');
     const dates=datesSafe_(parameters.dates,event);
-    const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SETTINGS.responsesTab);
+    const sheet=getBook_().getSheetByName(SETTINGS.responsesTab);
     if(!sheet)throw new Error('RESPONSES 탭이 없습니다.');
     const tokenHash=sha256_(token),now=nowIso_();
     const last=sheet.getLastRow();
@@ -259,7 +290,7 @@ function saveEvent_(p) {
   const lock=LockService.getScriptLock();
   if(!lock.tryLock(10000))throw new Error('다른 저장 요청 처리 중입니다. 다시 시도해 주세요.');
   try {
-    const sheet=ensureSheet_(SpreadsheetApp.getActiveSpreadsheet(),SETTINGS.eventsTab,EVENT_HEADERS);
+    const sheet=ensureSheet_(getBook_(),SETTINGS.eventsTab,EVENT_HEADERS);
     const last=sheet.getLastRow();
     const ids=last>1?sheet.getRange(2,1,last-1,1).getValues().map(row=>String(row[0])):[];
     const index=ids.indexOf(id);

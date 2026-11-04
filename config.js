@@ -5,6 +5,6 @@
  */
 window.APP_CONFIG = Object.freeze({
   siteName: '모두의 연말',
-  appsScriptUrl: '', // 예: https://script.google.com/macros/s/AKfycb.../exec
+  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbztxNHvOGgdvprzmzBylrAUCGxFjjdTVZAbMRXoz9BjXEAqOEBT8aRpS33V5U-jImkFFA/exec', // 예: https://script.google.com/macros/s/AKfycb.../exec
   publishedSheetUrl: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTDfTvru5Z7yFeD4yIGEMVVOVF4kU6uCH_snsMfpY2QK99PSg29Bk-IMA6whr4rVPN9EBsg8rHixaF5/pubhtml'
 });

@@ -4,7 +4,8 @@
  * 게시용 /pubhtml URL은 여기서 열거나 쓰기 권한을 부여할 수 없습니다.
  *
  * 배포: 웹 앱 / 실행 사용자: 나 / 액세스 권한: 모든 사용자(Anyone).
- * 모임 생성·수정은 Script Properties의 관리자 키가 있는 사람만 가능합니다.
+ * 모임별 관리 비밀번호는 Script Properties에 salt + SHA-256 해시로만 저장합니다.
+ * 공개 시트, GitHub 코드, 조회 응답에는 비밀번호/해시가 포함되지 않습니다.
  * 공개 이름 노출 여부는 EVENTS 탭 PUBLIC_NAMES에서 결정합니다.
  */
 const SETTINGS = Object.freeze({
@@ -31,13 +32,12 @@ function setupSheets() {
   const events = ensureSheet_(book, SETTINGS.eventsTab, EVENT_HEADERS);
   const responses = ensureSheet_(book, SETTINGS.responsesTab, RESPONSE_HEADERS);
 
-  // 모임은 이제 웹의 '새 모임 만들기'에서 등록합니다. 샘플 모임을 자동 추가하지 않습니다.
-  initializeAdminKey_();
+  // 빈 시트부터 시작하며 샘플 모임/공용 관리자 키를 만들지 않습니다.
   events.setFrozenRows(1);
   responses.setFrozenRows(1);
   events.autoResizeColumns(1,EVENT_HEADERS.length);
   responses.autoResizeColumns(1,RESPONSE_HEADERS.length);
-  return 'EVENTS / RESPONSES 탭 준비 완료. 실행 로그에 새 관리자 키가 표시되었다면 안전하게 보관하세요.';
+  return 'EVENTS / RESPONSES 탭 준비 완료. 웹의 새 모임 만들기에서 모임마다 관리 비밀번호를 설정하세요.';
 }
 
 function ensureSheet_(book,name,headers) {
@@ -124,11 +124,25 @@ function output_(data,callback) {
   return ContentService.createTextOutput(body).setMimeType(ContentService.MimeType.JSON);
 }
 function doGet(e) {
-  const parameter=e&&e.parameter?e.parameter:{};
+  const p=e&&e.parameter?e.parameter:{};
   try {
-    if(parameter.action!=='read')return output_({ok:false,error:'지원하지 않는 요청입니다.'},parameter.callback);
-    return output_(readPayload_(),parameter.callback);
-  }catch(error){console.error(error);return output_({ok:false,error:'시트를 읽지 못했습니다. Apps Script 실행 로그와 설정을 확인해 주세요.'},parameter.callback);}
+    if(p.action==='read')return output_(readPayload_(),p.callback);
+    if(p.action==='receipt')return output_(getReceipt_(p.requestId),p.callback);
+    return output_({ok:false,error:'지원하지 않는 요청입니다. Apps Script Code.gs 버전을 확인하세요.'},p.callback);
+  }catch(error){console.error(error);return output_({ok:false,error:'시트를 읽지 못했습니다. Apps Script 실행 로그와 배포 버전을 확인해 주세요.'},p.callback);}
+}
+function receiptKey_(id) {
+  if(!/^[0-9a-f]{64}$/i.test(String(id||'')))throw new Error('요청 ID 형식이 잘못되었습니다.');
+  return 'write_'+id;
+}
+function getReceipt_(id) {
+  const raw=CacheService.getScriptCache().get(receiptKey_(id));
+  return raw?JSON.parse(raw):{done:false};
+}
+function putReceipt_(id,result) {
+  if(/^[0-9a-f]{64}$/i.test(String(id||''))) {
+    CacheService.getScriptCache().put(receiptKey_(id),JSON.stringify({done:true,ok:result.ok===true,error:result.error||''}),360);
+  }
 }
 function sha256_(text) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,text,Utilities.Charset.UTF_8)
@@ -183,25 +197,34 @@ function saveResponse_(parameters) {
     return {ok:true,id,created:true};
   }finally{lock.releaseLock();}
 }
-/** 설치 시 최초 1회 관리자 키 생성: Script Properties에는 해시만 저장합니다. */
-function initializeAdminKey_() {
-  const props=PropertiesService.getScriptProperties();
-  if (props.getProperty('ADMIN_KEY_SHA256')) return '관리자 키가 이미 설정되어 있습니다.';
-  const key=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
-  props.setProperty('ADMIN_KEY_SHA256',sha256_(key));
-  console.log('관리자 키 (최초 1회 표시, 꼭 안전하게 보관): '+key);
-  return '관리자 키 (최초 1회 표시, 꼭 안전하게 보관): '+key;
-}
-/** 관리자 키를 잃어버린 경우에만 편집기에서 실행. 이전 키는 즉시 무효화됩니다. */
-function resetAdminKey() {
-  PropertiesService.getScriptProperties().deleteProperty('ADMIN_KEY_SHA256');
-  return initializeAdminKey_();
-}
-function verifyAdminKey_(key) {
-  const stored=PropertiesService.getScriptProperties().getProperty('ADMIN_KEY_SHA256');
-  if (!stored || !/^[0-9a-f]{64}$/i.test(String(key||'')) || sha256_(String(key))!==stored) {
-    throw new Error('관리자 키가 올바르지 않습니다. Apps Script 실행 로그 또는 관리자에게 확인해 주세요.');
+/** 모임마다 별도 관리 비밀번호를 검증합니다. 비밀번호는 원본 시트에도 저장하지 않습니다. */
+function eventPasswordKey_(eventId) { return 'EVENT_PASSWORD_'+eventId; }
+function assertPassword_(value) {
+  const password=String(value||'');
+  if(password.length<8 || password.length>128 || /[\u0000-\u001f]/.test(password)) {
+    throw new Error('모임 관리 비밀번호를 8~128자로 입력해 주세요.');
   }
+  return password;
+}
+function salt_() {return Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');}
+function eventPasswordHash_(salt,password) { return sha256_('year-end:v3:'+salt+':'+password); }
+function verifyEventPassword_(eventId,password) {
+  const stored=PropertiesService.getScriptProperties().getProperty(eventPasswordKey_(eventId));
+  if(!stored)throw new Error('이 모임에는 관리 비밀번호가 설정되지 않았습니다. 시트 소유자에게 문의하세요.');
+  const parts=stored.split(':');
+  if(parts.length!==2 || !/^[0-9a-f]{64}$/.test(parts[0]) || !/^[0-9a-f]{64}$/.test(parts[1]) ||
+    eventPasswordHash_(parts[0],assertPassword_(password))!==parts[1]) {
+    throw new Error('모임 관리 비밀번호가 일치하지 않습니다.');
+  }
+}
+/** 비밀번호 분실 시에만 Apps Script 편집기에서 실행. ID를 설정한 후 직접 실행하세요. */
+function resetEventPassword() {
+  const eventId='여기에-모임-ID-입력';
+  const newPassword='여기에-새-비밀번호-8자-이상';
+  if(!readEvents_().some(e=>e.id===eventId))throw new Error('모임 ID를 확인하세요.');
+  const password=assertPassword_(newPassword),salt=salt_();
+  PropertiesService.getScriptProperties().setProperty(eventPasswordKey_(eventId),salt+':'+eventPasswordHash_(salt,password));
+  return '해당 모임 관리 비밀번호를 변경했습니다.';
 }
 function safePlainText_(value,max,field,required) {
   const text=String(value||'').trim();
@@ -211,7 +234,7 @@ function safePlainText_(value,max,field,required) {
   return text;
 }
 function saveEvent_(p) {
-  verifyAdminKey_(p.adminKey);
+  const password=assertPassword_(p.adminKey);
   const operation=String(p.operation||'create');
   if(operation!=='create' && operation!=='update')throw new Error('지원하지 않는 모임 관리 작업입니다.');
   const id=String(p.id||'').trim();
@@ -240,22 +263,39 @@ function saveEvent_(p) {
     const last=sheet.getLastRow();
     const ids=last>1?sheet.getRange(2,1,last-1,1).getValues().map(row=>String(row[0])):[];
     const index=ids.indexOf(id);
-    if(operation==='create' && index>=0)throw new Error('이미 존재하는 모임 ID입니다.');
+    if(operation==='create' && index>=0){
+      // POST 재시도에도 새 모임을 중복 생성하지 않습니다.
+      verifyEventPassword_(id,password);
+      return {ok:true,id,operation,alreadyExisted:true};
+    }
     if(operation==='update' && index<0)throw new Error('수정할 모임을 찾을 수 없습니다.');
     if(operation==='create' && ids.length>=300)throw new Error('모임 최대 등록 수를 초과했습니다.');
+    if(operation==='update')verifyEventPassword_(id,password);
     const row=[id,title,description,location,start,end,deadline,status,publicNames?'TRUE':'FALSE',allowed.join(',')];
     const rowNum=operation==='update'?index+2:last+1;
     sheet.getRange(rowNum,1,1,EVENT_HEADERS.length).setNumberFormat('@').setValues([row]);
     SpreadsheetApp.flush();
+    if(operation==='create'){
+      const salt=salt_();
+      PropertiesService.getScriptProperties().setProperty(eventPasswordKey_(id),salt+':'+eventPasswordHash_(salt,password));
+    }
     return {ok:true,id,operation};
   }finally{lock.releaseLock();}
 }
 
 function doPost(e) {
+  const p=e&&e.parameter?e.parameter:{};
+  let result;
   try {
-    const p=e&&e.parameter?e.parameter:{};
-    if(p.action==='save')return output_(saveResponse_(p));
-    if(p.action==='event')return output_(saveEvent_(p));
-    return output_({ok:false,error:'지원하지 않는 요청입니다.'});
-  }catch(error){console.error(error);return output_({ok:false,error:String(error.message||'저장 오류')});}
+    if(p.action==='save')result=saveResponse_(p);
+    else if(p.action==='event')result=saveEvent_(p);
+    else result={ok:false,error:'지원하지 않는 요청입니다.'};
+  }catch(error){
+    console.error(error);
+    result={ok:false,error:String(error.message||'저장 오류')};
+  }
+  // POST는 브라우저에서 응답을 읽을 수 없을 수 있으므로,
+  // 별도의 공개 조회(GET)로 확인할 수 있는 무작위 수신증을 기록합니다.
+  try {putReceipt_(p.requestId,result);}catch(error){console.error('Receipt cache unavailable: '+error);}
+  return output_(result);
 }

@@ -20,11 +20,13 @@ class Sheet {
   setFrozenRows() {}autoResizeColumns() {}
 }
 const props = new Map();
+const receipts = new Map();
 const book={getSheetByName(name){return sheetMap.get(name)||null;}, insertSheet(name){const s=new Sheet(name);sheetMap.set(name,s);return s;}};
 const sandbox={
   SpreadsheetApp:{getActiveSpreadsheet(){return book;},flush(){}},
   PropertiesService:{getScriptProperties(){return {getProperty(key){return props.get(key)||null;},setProperty(key,value){props.set(key,value);},deleteProperty(key){props.delete(key);}};}},
   LockService:{getScriptLock(){return {tryLock(){return true;},releaseLock(){}};}},
+  CacheService:{getScriptCache(){return {get(key){return receipts.get(key)||null;},put(key,val){receipts.set(key,val);}};}},
   Utilities:{
     DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},getUuid(){return crypto.randomUUID();},
     computeDigest(_,s){return [...crypto.createHash('sha256').update(s,'utf8').digest()].map(n=>n>127?n-256:n);},
@@ -37,25 +39,43 @@ vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../apps-script/Code.gs'),'utf8'),sandbox);
 assert.match(sandbox.setupSheets(),/완료/);
 assert.equal(book.getSheetByName('EVENTS').getLastRow(),1);
-assert.equal(typeof props.get('ADMIN_KEY_SHA256'),'string');
-const key=sandbox.resetAdminKey().match(/[0-9a-f]{64}/)[0];
-const eid='year-end-2026';
-let created=JSON.parse(sandbox.doPost({parameter:{action:'event',operation:'create',id:eid,adminKey:key,title:'2026 연말 모임',description:'함께해요',location:'서울',startDate:'2026-12-01',endDate:'2026-12-31',deadline:'2026-12-31',status:'OPEN',publicNames:'true',allowedDates:'[]'}}).body);
+assert.equal([...props.keys()].length,0); // 아무 관리 키도 초기 설정하지 않음
+const eid='11111111-1111-4111-8111-111111111110';
+const password='first-meeting-Password!789';
+const rid='a'.repeat(64);
+const payload={action:'event',operation:'create',id:eid,adminKey:password,title:'2026 연말 모임',description:'함께해요',location:'서울',startDate:'2026-12-01',endDate:'2026-12-31',deadline:'2026-12-31',status:'OPEN',publicNames:'true',allowedDates:'[]',requestId:rid};
+let created=JSON.parse(sandbox.doPost({parameter:payload}).body);
 assert.equal(created.ok,true);
 assert.equal(book.getSheetByName('EVENTS').getLastRow(),2);
-created=JSON.parse(sandbox.doPost({parameter:{action:'event',operation:'create',id:'missing-admin-key',adminKey:'x',title:'나쁜 요청',startDate:'2026-12-01',endDate:'2026-12-31',status:'OPEN',allowedDates:'[]'}}).body);
-assert.equal(created.ok,false);
-const changed=JSON.parse(sandbox.doPost({parameter:{action:'event',operation:'update',id:eid,adminKey:key,title:'2026 연말 모임',description:'함께해요',location:'서울',startDate:'2026-12-01',endDate:'2026-12-31',deadline:'2026-12-31',status:'OPEN',publicNames:'true',allowedDates:'[]'}}).body);
+assert.equal(props.has(`EVENT_PASSWORD_${eid}`),true);
+const storedPassword=props.get(`EVENT_PASSWORD_${eid}`);
+assert.ok(storedPassword.includes(':'));
+assert.equal(storedPassword.includes(password),false);
+assert.equal(JSON.parse(sandbox.doGet({parameter:{action:'receipt',requestId:rid}}).body).ok,true);
+created=JSON.parse(sandbox.doPost({parameter:{...payload,requestId:'b'.repeat(64)}}).body);
+assert.equal(created.ok,true);
+assert.equal(book.getSheetByName('EVENTS').getLastRow(),2);
+let failed=JSON.parse(sandbox.doPost({parameter:{...payload,operation:'update',adminKey:'incorrect-passw',requestId:'c'.repeat(64)}}).body);
+assert.equal(failed.ok,false);
+assert.match(JSON.parse(sandbox.doGet({parameter:{action:'receipt',requestId:'c'.repeat(64)}}).body).error,/비밀번호/);
+assert.equal(book.getSheetByName('EVENTS').getLastRow(),2);
+const changed=JSON.parse(sandbox.doPost({parameter:{...payload,operation:'update',title:'업데이트 연말 모임'}}).body);
 assert.equal(changed.ok,true);
+const eid2='11111111-1111-4111-8111-111111111112';
+const secondPw='other-meeting-Password!';
+assert.equal(JSON.parse(sandbox.doPost({parameter:{...payload,id:eid2,adminKey:secondPw}}).body).ok,true);
+assert.equal(JSON.parse(sandbox.doPost({parameter:{...payload,id:eid2,operation:'update',adminKey:password}}).body).ok,false);
 const uid='11111111-1111-4111-8111-111111111111',tok='a'.repeat(64);
-const args={action:'save',id:uid,token:tok,eventId:'year-end-2026',name:'김모임',dates:JSON.stringify(['2026-12-01','2026-12-19'])};
+const args={action:'save',id:uid,token:tok,eventId:eid,name:'김모임',dates:JSON.stringify(['2026-12-01','2026-12-19']),requestId:'d'.repeat(64)};
 let res=JSON.parse(sandbox.doPost({parameter:args}).body);
 assert.equal(res.ok,true);assert.equal(res.created,true);
 let output=JSON.parse(sandbox.doGet({parameter:{action:'read'}}).body);
-assert.equal(output.events.length,1);assert.equal(output.responses.length,1);
+assert.equal(output.events.length,2);assert.equal(output.responses.length,1);
 assert.equal(output.responses[0].name,'김모임');
 assert.deepEqual(Array.from(output.responses[0].dates),['2026-12-01','2026-12-19']);
 assert.equal(output.responses[0].token,undefined);
+assert.equal(JSON.stringify(output).includes(password),false);
+assert.equal(JSON.stringify(output).includes(storedPassword),false);
 res=JSON.parse(sandbox.doPost({parameter:{...args,name:'박모임',dates:JSON.stringify(['2026-12-20'])}}).body);
 assert.equal(res.ok,true);assert.equal(res.updated,true);
 assert.equal(book.getSheetByName('RESPONSES').getLastRow(),2);
@@ -66,4 +86,5 @@ res=JSON.parse(sandbox.doPost({parameter:{...args,id:'22222222-2222-4222-8222-22
 assert.equal(res.ok,false);
 book.getSheetByName('EVENTS').getRange(2,9).setValues([['FALSE']]);
 assert.equal(JSON.parse(sandbox.doGet({parameter:{action:'read'}}).body).responses[0].name,'비공개');
-console.log('PASS Apps Script: setup, admin key, event create/update, save, edit response, read, invalid token, formula injection, private names');
+assert.equal(JSON.parse(sandbox.doGet({parameter:{action:'receipt',requestId:'e'.repeat(64)}}).body).done,false);
+console.log('PASS Apps Script v3: setup without demo, per-event password security, create/update, idempotence, receipt, participant save/revise, private names, no password leakage');

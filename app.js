@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG = window.APP_CONFIG;
-  const STORAGE_PREFIX = 'year-end-together:v1';
+  const STORAGE_PREFIX = 'year-end-together:v3';
   const isLive = Boolean(CONFIG.appsScriptUrl.trim());
   const $ = selector => document.querySelector(selector);
   const root = $('#app');
@@ -109,7 +109,8 @@
   function shareUrl(id) {return `${location.href.split('#')[0]}#event/${encodeURIComponent(id)}`;}
 
   function normalizeData(input) {
-    if (!input || !input.ok || !Array.isArray(input.events) || !Array.isArray(input.responses)) throw new Error('서버에서 올바른 데이터를 받지 못했습니다.');
+    if(input && input.ok===false)throw new Error(input.error||'서버에서 오류가 발생했습니다.');
+    if (!input || !input.ok || !Array.isArray(input.events) || !Array.isArray(input.responses)) throw new Error('Apps Script 응답 형식이 올바르지 않습니다. Code.gs를 최신 버전으로 다시 배포해 주세요.');
     const events=input.events.filter(e=>e && typeof e.id==='string' && isIsoDate(e.startDate) && isIsoDate(e.endDate)).map(e=>({
       id:e.id,title:String(e.title||'제목 없는 모임'),description:String(e.description||''),location:String(e.location||'장소 추후 공지'),
       startDate:e.startDate,endDate:e.endDate,deadline:isIsoDate(e.deadline)?e.deadline:'',
@@ -142,9 +143,7 @@
   }
   async function refreshData(showSpinner=false) {
     if (!isLive) {
-      let saved=[];try{saved=JSON.parse(safeStore('demoResponses')||'[]')}catch(_){saved=[]}
-      let localEvents=[];try{localEvents=JSON.parse(safeStore('demoEvents')||'[]')}catch(_){localEvents=[]}
-      state.data={events:[CONFIG.demoEvent,...(Array.isArray(localEvents)?localEvents:[])],responses:Array.isArray(saved)?saved:[]};
+      state.data={events:[],responses:[]};
       state.loading=false;state.error='';render();return;
     }
     if (showSpinner){state.loading=true;render();}
@@ -158,12 +157,12 @@
     return `<div class="hero-art" aria-hidden="true"><div class="decor-circle"></div><div class="art-calendar"><div class="art-heading"><span>DECEMBER 2026</span><span class="art-dot-row"><b></b><b></b><b></b></span></div><div class="art-weekdays">${['월','화','수','목','금','토','일'].map(d=>`<span>${d}</span>`).join('')}</div><div class="art-days">${numbers.map(n=>`<span class="art-day ${[4,9,11,18,20,24].includes(n)?'active':''} ${n===24?'star':''}">${n||''}</span>`).join('')}</div></div><div class="art-ticket">♥ 모두 함께하는 날 <small>DEC 24 · HOLIDAY SEASON</small></div></div>`;
   }
   function header() {
-    return `<header class="site-header"><div class="shell header-inner"><a class="brand" href="#home" aria-label="모두의 연말 홈"><img src="./assets/favicon.svg" alt="" width="39" height="39"><span><span class="brand-name">모두의 연말</span><span class="brand-caption">TOGETHER, THIS YEAR</span></span></a><nav class="header-nav" aria-label="주 메뉴"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a><a href="${escapeHtml(CONFIG.publishedSheetUrl)}" target="_blank" rel="noopener noreferrer">공개 시트 ${icon('arrow-right')}</a></nav><div class="header-actions"><button class="icon-btn" data-action="refresh" title="일정 새로고침" aria-label="일정 새로고침">${icon('refresh')}</button><button class="icon-btn" data-action="theme" title="화면 테마 변경" aria-label="${state.theme==='light'?'어두운 모드로 변경':'밝은 모드로 변경'}">${icon(state.theme==='light'?'moon':'sun')}</button><button class="icon-btn mobile-menu-btn" data-action="menu" aria-label="메뉴 열기" aria-expanded="${state.menuOpen}">${icon('menu')}</button></div></div><nav class="mobile-nav ${state.menuOpen?'open':''}" aria-label="모바일 메뉴"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a><a href="${escapeHtml(CONFIG.publishedSheetUrl)}" target="_blank" rel="noopener noreferrer">공개 시트 보기</a></nav></header>`;
+    return `<header class="site-header"><div class="shell header-inner"><a class="brand" href="#home" aria-label="모두의 연말 홈"><img src="./assets/favicon.svg" alt="" width="39" height="39"><span><span class="brand-name">모두의 연말</span><span class="brand-caption">TOGETHER, THIS YEAR</span></span></a><nav class="header-nav" aria-label="주 메뉴"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a></nav><div class="header-actions"><button class="icon-btn" data-action="refresh" title="일정 새로고침" aria-label="일정 새로고침">${icon('refresh')}</button><button class="icon-btn" data-action="theme" title="화면 테마 변경" aria-label="${state.theme==='light'?'어두운 모드로 변경':'밝은 모드로 변경'}">${icon(state.theme==='light'?'moon':'sun')}</button><button class="icon-btn mobile-menu-btn" data-action="menu" aria-label="메뉴 열기" aria-expanded="${state.menuOpen}">${icon('menu')}</button></div></div><nav class="mobile-nav ${state.menuOpen?'open':''}" aria-label="모바일 메뉴"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a></nav></header>`;
   }
-  function footer() {return `<footer class="site-footer"><div class="shell footer-inner"><div class="footer-brand">✳ 모두의 연말 <small>모두에게 좋은 날짜를 찾는 가장 쉬운 방법.</small></div><div class="footer-links"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a><a href="${escapeHtml(CONFIG.publishedSheetUrl)}" target="_blank" rel="noopener noreferrer">Google Sheets</a></div></div></footer>`;}
+  function footer() {return `<footer class="site-footer"><div class="shell footer-inner"><div class="footer-brand">✳ 모두의 연말 <small>모두에게 좋은 날짜를 찾는 가장 쉬운 방법.</small></div><div class="footer-links"><a href="#home">모임 목록</a><a href="#create">새 모임 만들기</a><a href="#how">참여 방법</a></div></div></footer>`;}
   function banner() {
-    if (state.error) return `<div class="info-banner error" role="alert">${icon('alert')}<span><strong>연결 오류</strong> — ${escapeHtml(state.error)} 이전 응답이 있다면 표시하지만, 새 제출은 연결 복구 후 가능합니다. <button class="link-button" data-action="refresh">다시 시도</button></span></div>`;
-    if (!isLive) return `<div class="info-banner" role="status">${icon('info')}<span><strong>Google Sheets 쓰기 연결 전입니다.</strong> 연결된 공개 시트 주소는 조회용으로만 등록되어 있습니다. 모임 만들기와 참석 등록은 지금 이 브라우저에서만 시험할 수 있습니다. 실제 공유 저장은 <code>config.js</code>에 Apps Script /exec 주소를 연결해야 합니다.</span></div>`;
+    if (state.error) return `<div class="info-banner error" role="alert">${icon('alert')}<span><strong>연결 오류</strong> — ${escapeHtml(state.error)} 등록이 완료되지 않았습니다. 연결을 확인한 뒤 다시 시도하세요. <button class="link-button" data-action="refresh">다시 시도</button></span></div>`;
+    if (!isLive) return `<div class="info-banner" role="status">${icon('info')}<span><strong>Google Sheets 쓰기 연결 전입니다.</strong> 지금은 공개 스프레드시트 주소만 있고 실제 저장 서버 주소가 없습니다. <strong>이 상태에서는 등록되지 않습니다.</strong> 원본 시트에서 Apps Script를 배포한 뒤 <code>config.js</code>에 <code>/exec</code> 주소를 넣으면 모든 기기에서 동일한 모임을 볼 수 있습니다.</span></div>`;
     return '';
   }
   function statsMarkup() {
@@ -183,7 +182,7 @@
   }
   function calendarMarkup(event,draft) {
     const dates=new Set(dateRange(event));
-    const enabled=eventIsOpen(event) && !state.error;
+    const enabled=eventIsOpen(event) && !state.error && isLive;
     const month=state.calendarMonth;
     const [year,m]=month.split('-').map(Number);
     const monthStart=new Date(Date.UTC(year,m-1,1));
@@ -207,8 +206,8 @@
   }
   function formMarkup(event,draft) {
     const count=draft.dates.length;
-    const open=eventIsOpen(event);
-    return `<aside class="panel form-panel sticky" aria-label="참석 응답 등록"><div class="panel-label"><div><h2>참석 가능 날짜 제출</h2><p>이름과 선택한 날짜를 확인해 주세요.</p></div><div class="tiny-icon">${icon('check')}</div></div><form id="response-form" novalidate><label class="input-label" for="attendee-name">이름 <span style="color:var(--coral)">*</span></label><input id="attendee-name" class="input-field" name="name" autocomplete="name" maxlength="30" placeholder="예: 김민수" value="${escapeHtml(draft.name)}" ${!open?'disabled':''} required><p class="form-hint">다른 참석자가 알아볼 수 있는 이름으로 적어주세요.</p><div class="summary-preview"><div class="summary-top">내가 참석할 수 있는 날짜</div><strong>${count}<span style="font-size:14px"> 일</span></strong><div class="summary-bottom">${count?escapeHtml([...draft.dates].sort().map(d=>formatDate(d,{month:'numeric',day:'numeric'})).join(' · ')):'아직 날짜를 선택하지 않았어요.'}</div></div><label class="checkbox-line"><input type="checkbox" id="consent" ${draft.consent?'checked':''} ${!open?'disabled':''}> <span>이름과 선택 날짜가 모임 일정 조율을 위해 저장되고, 공개 설정된 모임에서는 다른 참여자에게 표시되는 데 동의합니다.</span></label><button class="button dark full" type="submit" ${!open||!!state.error||state.saving?'disabled':''}>${state.saving?`<span class="spinner"></span> 시트 저장 확인 중…`:`${draft.id?'내 응답 수정하기':'가능한 날짜 제출하기'} ${icon('arrow-right')}`}</button>${!open?`<p class="form-error">이 모임은 응답 기간이 끝났습니다.</p>`:''}${state.error?'<p class="form-error">연결 상태를 확인한 뒤 제출할 수 있습니다.</p>':''}${state.statusMessage?`<div class="form-success" role="status">${escapeHtml(state.statusMessage)}</div>`:''}<p class="privacy-note">${isLive?'제출 후 Google Sheets에 저장됩니다.':'현재는 미리보기: 이 기기에만 저장됩니다.'}<br>이 브라우저에서는 이전 응답을 다시 수정할 수 있어요.</p></form></aside>`;
+    const open=eventIsOpen(event) && isLive;
+    return `<aside class="panel form-panel sticky" aria-label="참석 응답 등록"><div class="panel-label"><div><h2>참석 가능 날짜 제출</h2><p>이름과 선택한 날짜를 확인해 주세요.</p></div><div class="tiny-icon">${icon('check')}</div></div><form id="response-form" novalidate><label class="input-label" for="attendee-name">이름 <span style="color:var(--coral)">*</span></label><input id="attendee-name" class="input-field" name="name" autocomplete="name" maxlength="30" placeholder="예: 김민수" value="${escapeHtml(draft.name)}" ${!open?'disabled':''} required><p class="form-hint">다른 참석자가 알아볼 수 있는 이름으로 적어주세요.</p><div class="summary-preview"><div class="summary-top">내가 참석할 수 있는 날짜</div><strong>${count}<span style="font-size:14px"> 일</span></strong><div class="summary-bottom">${count?escapeHtml([...draft.dates].sort().map(d=>formatDate(d,{month:'numeric',day:'numeric'})).join(' · ')):'아직 날짜를 선택하지 않았어요.'}</div></div><label class="checkbox-line"><input type="checkbox" id="consent" ${draft.consent?'checked':''} ${!open?'disabled':''}> <span>이름과 선택 날짜가 모임 일정 조율을 위해 저장되고, 공개 설정된 모임에서는 다른 참여자에게 표시되는 데 동의합니다.</span></label><button class="button dark full" type="submit" ${!open||!!state.error||state.saving?'disabled':''}>${state.saving?`<span class="spinner"></span> 시트 저장 확인 중…`:`${draft.id?'내 응답 수정하기':'가능한 날짜 제출하기'} ${icon('arrow-right')}`}</button>${!open?`<p class="form-error">${!isLive?'Google Sheets를 연결해야 등록할 수 있습니다.':'이 모임은 응답 기간이 끝났습니다.'}</p>`:''}${state.error?'<p class="form-error">연결 상태를 확인한 뒤 제출할 수 있습니다.</p>':''}${state.statusMessage?`<div class="form-success" role="status">${escapeHtml(state.statusMessage)}</div>`:''}<p class="privacy-note">${isLive?'제출 후 Google Sheets에 저장됩니다.':'시트 연결 후에만 제출할 수 있습니다.'}<br>이 브라우저에서는 이전 응답을 다시 수정할 수 있어요.</p></form></aside>`;
   }
   function resultMarkup(event) {
     const responses=responsesFor(event.id),counts=countsFor(event.id);
@@ -232,49 +231,81 @@
   }
   function editPage(event) {
     const edit=Boolean(event);
-    const e=event||{title:'',description:'',location:'',startDate:'2026-12-01',endDate:'2026-12-31',deadline:'2026-12-20',publicNames:false,status:'OPEN',allowedDates:[]};
+    const e=event||{title:'',description:'',location:'',startDate:'2026-12-01',endDate:'2026-12-31',deadline:'2026-12-20',publicNames:true,status:'OPEN',allowedDates:[]};
     const dates=(e.allowedDates||[]).join(', ');
-    return `<main id="main" class="shell"><nav class="breadcrumb"><a href="#home">모임 목록</a>${icon('chevron-right')}<span>${edit?'모임 관리':'새 모임 만들기'}</span></nav>${banner()}<section class="edit-wrap"><div class="edit-intro"><span class="kicker">PLAN YOUR GATHERING</span><h1>${edit?'모임 정보 관리':'새 모임 만들기'}</h1><p>일정과 장소를 등록하면 모임별 링크가 만들어지고 참여자들의 가능한 날짜를 모을 수 있습니다.</p></div><div class="panel edit-panel"><form id="event-form" novalidate><input type="hidden" name="id" value="${escapeHtml(e.id||randomId())}"><input type="hidden" name="operation" value="${edit?'update':'create'}"><div class="edit-form-grid"><div class="field wide"><label for="ev-title">모임 이름 *</label><input id="ev-title" name="title" class="input-field" placeholder="예: 우리 동호회 연말 모임" maxlength="80" required value="${escapeHtml(e.title)}"></div><div class="field wide"><label for="ev-description">모임 안내</label><textarea id="ev-description" name="description" class="input-field edit-textarea" maxlength="800" placeholder="장소와 준비할 내용을 적어주세요.">${escapeHtml(e.description)}</textarea></div><div class="field wide"><label for="ev-location">장소</label><input id="ev-location" name="location" class="input-field" placeholder="예: 서울 강남, 장소 추후 결정" maxlength="120" value="${escapeHtml(e.location)}"></div><div class="field"><label for="ev-start">시작 날짜 *</label><input id="ev-start" name="startDate" class="input-field" type="date" required value="${escapeHtml(e.startDate)}"></div><div class="field"><label for="ev-end">마지막 날짜 *</label><input id="ev-end" name="endDate" class="input-field" type="date" required value="${escapeHtml(e.endDate)}"></div><div class="field"><label for="ev-deadline">응답 마감</label><input id="ev-deadline" name="deadline" class="input-field" type="date" value="${escapeHtml(e.deadline)}"></div><div class="field"><label for="ev-status">모임 상태</label><select id="ev-status" name="status" class="input-field"><option value="OPEN" ${e.status==='OPEN'?'selected':''}>응답 받는 중</option><option value="CLOSED" ${e.status==='CLOSED'?'selected':''}>모임 마감</option></select></div><div class="field wide"><label for="ev-allowed">가능한 후보 날짜 (선택)</label><input id="ev-allowed" name="allowedDates" class="input-field" placeholder="예: 2026-12-12, 2026-12-19 (빈칸이면 기간 내 전체)" value="${escapeHtml(dates)}"><p class="form-hint">콤마(,)로 구분합니다. 비워 두면 시작일~마지막 날짜 모두 선택 가능합니다.</p></div><div class="field wide"><label class="checkbox-line"><input name="publicNames" type="checkbox" value="true" ${e.publicNames?'checked':''}><span>참여자 이름을 모임 페이지와 공개 조회 데이터에 표시합니다. (선택하지 않으면 비공개)</span></label></div>${isLive?`<div class="field wide"><label for="ev-admin-key">관리자 키 *</label><input id="ev-admin-key" class="input-field" type="password" name="adminKey" required autocomplete="off" maxlength="64" placeholder="Apps Script 설치 시 발급받은 64자리 관리자 키"><p class="form-hint">다른 사람이 모임을 임의로 만들거나 수정하지 못하도록 확인합니다. 저장소나 소스코드에 입력하지 마세요.</p></div>`:''}</div><div class="edit-bottom"><div class="edit-warning">${isLive?'저장하면 Google 스프레드시트의 EVENTS 탭에 반영됩니다.':'현재 Google Sheets 미연결 상태: 이 브라우저에만 임시 등록됩니다.'}</div><button type="submit" class="button dark" id="event-save-button">${edit?'모임 정보 저장하기':'모임 만들고 링크 받기'} ${icon('arrow-right')}</button></div></form></div><div class="edit-help"><h2>Google Sheets 연결은 어떻게 하나요?</h2><p>제공하신 <a href="${escapeHtml(CONFIG.publishedSheetUrl)}" target="_blank" rel="noopener noreferrer">공개 스프레드시트</a>는 읽기용입니다. 편집 가능한 원본 시트에서 <strong>확장 프로그램 → Apps Script</strong>를 열어 이 프로젝트의 <code>apps-script/Code.gs</code>를 배포한 뒤, <code>config.js</code>에 발급받은 <code>/exec</code> URL을 입력해야 실제 저장됩니다.</p></div></section></main>`;
+    return `<main id="main" class="shell"><nav class="breadcrumb"><a href="#home">모임 목록</a>${icon('chevron-right')}<span>${edit?'모임 관리':'새 모임 만들기'}</span></nav>${banner()}<section class="edit-wrap"><div class="edit-intro"><span class="kicker">PLAN YOUR GATHERING</span><h1>${edit?'모임 정보 관리':'새 모임 만들기'}</h1><p>일정과 장소를 등록하면 모임별 링크가 만들어지고 참여자들의 가능한 날짜를 모을 수 있습니다.</p></div><div class="panel edit-panel"><form id="event-form" novalidate><input type="hidden" name="id" value="${escapeHtml(e.id||randomId())}"><input type="hidden" name="operation" value="${edit?'update':'create'}"><div class="edit-form-grid"><div class="field wide"><label for="ev-title">모임 이름 *</label><input id="ev-title" name="title" class="input-field" placeholder="예: 우리 동호회 연말 모임" maxlength="80" required value="${escapeHtml(e.title)}"></div><div class="field wide"><label for="ev-description">모임 안내</label><textarea id="ev-description" name="description" class="input-field edit-textarea" maxlength="800" placeholder="장소와 준비할 내용을 적어주세요.">${escapeHtml(e.description)}</textarea></div><div class="field wide"><label for="ev-location">장소</label><input id="ev-location" name="location" class="input-field" placeholder="예: 서울 강남, 장소 추후 결정" maxlength="120" value="${escapeHtml(e.location)}"></div><div class="field"><label for="ev-start">시작 날짜 *</label><input id="ev-start" name="startDate" class="input-field" type="date" required value="${escapeHtml(e.startDate)}"></div><div class="field"><label for="ev-end">마지막 날짜 *</label><input id="ev-end" name="endDate" class="input-field" type="date" required value="${escapeHtml(e.endDate)}"></div><div class="field"><label for="ev-deadline">응답 마감</label><input id="ev-deadline" name="deadline" class="input-field" type="date" value="${escapeHtml(e.deadline)}"></div><div class="field"><label for="ev-status">모임 상태</label><select id="ev-status" name="status" class="input-field"><option value="OPEN" ${e.status==='OPEN'?'selected':''}>응답 받는 중</option><option value="CLOSED" ${e.status==='CLOSED'?'selected':''}>모임 마감</option></select></div><div class="field wide"><label for="ev-allowed">가능한 후보 날짜 (선택)</label><input id="ev-allowed" name="allowedDates" class="input-field" placeholder="예: 2026-12-12, 2026-12-19 (빈칸이면 기간 내 전체)" value="${escapeHtml(dates)}"><p class="form-hint">콤마(,)로 구분합니다. 비워 두면 시작일~마지막 날짜 모두 선택 가능합니다.</p></div><div class="field wide"><label class="checkbox-line"><input name="publicNames" type="checkbox" value="true" ${e.publicNames?'checked':''}><span>참여자 이름을 모임 상세의 참여 현황에 표시합니다. (공개 설정이며, 시트 게시 범위에 유의하세요)</span></label></div><div class="field wide"><label for="ev-admin-key">${edit?'모임 관리 비밀번호 *':'모임 관리 비밀번호 설정 *'}</label><input id="ev-admin-key" class="input-field" type="password" name="adminKey" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="8자 이상 비밀번호 (모임별로 다르게 설정 가능)"><p class="form-hint">${edit?'모임 만들 때 설정한 비밀번호를 입력해 주세요.':'모임을 수정하거나 마감할 때 필요한 비밀번호입니다. 반드시 따로 보관하세요.'} 시트/홈페이지에는 저장하거나 표시하지 않으며 서버에서 해시로만 검증합니다.</p></div>${!edit?`<div class="field wide"><label for="ev-admin-confirm">관리 비밀번호 확인 *</label><input id="ev-admin-confirm" class="input-field" name="adminConfirm" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="비밀번호 다시 입력"></div>`:''}</div><div class="edit-bottom"><div class="edit-warning">${isLive?'저장 완료 시 Google Sheets의 EVENTS 탭에 등록됩니다.':'Google Sheets 연결 전에는 저장할 수 없습니다.'}</div><button type="submit" class="button dark" id="event-save-button" ${!isLive?'disabled':''}>${edit?'모임 정보 저장하기':'모임 만들고 링크 받기'} ${icon('arrow-right')}</button></div></form></div><div class="edit-help"><h2>최초 1회 연결이 필요합니다</h2><p>제공하신 <a href="${escapeHtml(CONFIG.publishedSheetUrl)}" target="_blank" rel="noopener noreferrer">시트의 공개 게시 주소</a>는 읽기 전용입니다. 원본 편집 화면에서 <strong>확장 프로그램 → Apps Script</strong>를 열어 <code>apps-script/Code.gs</code>를 배포하고, 발급받은 <code>/exec</code> 주소를 <code>config.js</code>에 설정하세요. <strong>비밀번호는 공개 시트에 기록되지 않습니다.</strong> 자세한 방법은 프로젝트의 <code>START-HERE-KO.md</code>를 참고하세요.</p></div></section></main>`;
   }
 
   async function persistEvent(info) {
-    if(!isLive){
-      const previous=state.data.events.filter(e=>e.id!==info.id&&e.id!==CONFIG.demoEvent.id);
-      previous.push({...info});
-      safeStore('demoEvents',JSON.stringify(previous));
-      state.data.events=[CONFIG.demoEvent,...previous];
-      return;
-    }
+    if (!isLive) throw new Error('Google Sheets 연결 전입니다. 아직 등록할 수 없습니다.');
     const fields={action:'event',operation:info.operation,id:info.id,title:info.title,description:info.description,location:info.location,startDate:info.startDate,endDate:info.endDate,deadline:info.deadline,status:info.status,publicNames:String(info.publicNames),allowedDates:JSON.stringify(info.allowedDates),adminKey:info.adminKey};
-    await fetch(CONFIG.appsScriptUrl,{method:'POST',mode:'no-cors',body:new URLSearchParams(fields),cache:'no-store'});
-    // no-cors에서는 응답 본문을 읽지 못하므로 공개 조회에서 저장 결과를 다시 검증합니다.
-    const delays=[400,900,1500,2500,3700,5000];
-    for(const delay of delays){
-      await new Promise(resolve=>setTimeout(resolve,delay));
-      try{
-        const data=await readFromAppsScript();
-        state.data=data;
-        const saved=data.events.find(e=>e.id===info.id);
-        if(saved&&saved.title===info.title&&saved.startDate===info.startDate&&saved.endDate===info.endDate&&saved.status===info.status&&saved.description===info.description&&saved.publicNames===info.publicNames){return;}
-      }catch(_){/* 일시적인 조회 지연 */}
+    await postAndConfirm(fields);
+    state.data=await readFromAppsScript();
+    const saved=state.data.events.find(e=>e.id===info.id);
+    if (!saved || saved.title!==info.title || saved.startDate!==info.startDate || saved.endDate!==info.endDate || saved.status!==info.status) {
+      throw new Error('서버에서는 저장을 확인했으나 목록 갱신이 지연되고 있습니다. 잠시 뒤 새로고침하세요.');
     }
-    throw new Error('저장 확인이 되지 않았습니다. 관리자 키·Apps Script 배포 권한·시트 탭을 확인하고 새로고침하세요.');
   }
+
+  function readJsonp(params, timeout=15000) {
+    return new Promise((resolve,reject)=>{
+      let url;
+      try {
+        url=new URL(CONFIG.appsScriptUrl);
+        if(url.protocol!=='https:' || url.hostname!=='script.google.com' || !/^\/macros\/s\/[^/]+\/exec\/?$/.test(url.pathname)) throw new Error();
+      }catch(_){reject(new Error('config.js의 Apps Script /exec 주소를 확인해 주세요.'));return;}
+      const callback=`__yeReceipt_${randomId().replace(/-/g,'')}`;
+      const script=document.createElement('script');
+      let done=false;
+      let timer;
+      const cleanup=()=>{clearTimeout(timer);delete window[callback];script.remove();};
+      window[callback]=data=>{if(done)return;done=true;cleanup();resolve(data);};
+      script.onerror=()=>{if(done)return;done=true;cleanup();reject(new Error('Apps Script 응답을 읽지 못했습니다. 배포 권한을 확인하세요.'));};
+      timer=setTimeout(()=>{if(done)return;done=true;cleanup();reject(new Error('시트 서버 응답 시간이 초과되었습니다.'));},timeout);
+      Object.entries(params).forEach(([key,val])=>url.searchParams.set(key,val));
+      url.searchParams.set('callback',callback);url.searchParams.set('_',String(Date.now()));
+      script.src=url.toString();document.head.append(script);
+    });
+  }
+  async function postAndConfirm(fields) {
+    const requestId=randomSecret();
+    const body=new URLSearchParams({...fields,requestId});
+    try {
+      await fetch(CONFIG.appsScriptUrl,{method:'POST',mode:'no-cors',body,cache:'no-store'});
+    }catch(error){throw new Error('시트 서버에 전송할 수 없습니다. 네트워크를 확인해 주세요.');}
+    const delays=[450,900,1500,2200,3100,4000,4700];
+    for(const delay of delays){
+      await new Promise(r=>setTimeout(r,delay));
+      try {
+        const receipt=await readJsonp({action:'receipt',requestId},8000);
+        if(receipt && receipt.ok===false && !receipt.done && receipt.error){
+          throw Object.assign(new Error('Apps Script 서버 코드가 구버전이거나 설치되지 않았습니다. 최신 Code.gs 저장 후 새 버전으로 다시 배포해 주세요.'),{serverError:true});
+        }
+        if(receipt && receipt.done){
+          if(receipt.ok)return;
+          throw Object.assign(new Error(receipt.error||'저장에 실패했습니다.'),{serverError:true});
+        }
+      }catch(error){if(error.serverError)throw error;}
+    }
+    throw new Error('서버의 저장 결과를 확인하지 못했습니다. 중복 생성 방지를 위해 목록 새로고침 후 다시 시도하세요.');
+  }
+
   async function submitEvent(form){
     if(state.saving)return;
     const button=form.querySelector('[type=submit]');
     const d=new FormData(form);
-    const info={operation:String(d.get('operation')),id:String(d.get('id')),title:String(d.get('title')||'').trim(),description:String(d.get('description')||'').trim(),location:String(d.get('location')||'').trim(),startDate:String(d.get('startDate')||''),endDate:String(d.get('endDate')||''),deadline:String(d.get('deadline')||''),status:String(d.get('status')||'OPEN'),publicNames:d.get('publicNames')==='true',adminKey:String(d.get('adminKey')||''),allowedDates:String(d.get('allowedDates')||'').split(',').map(v=>v.trim()).filter(Boolean)};
+    const info={operation:String(d.get('operation')),id:String(d.get('id')),title:String(d.get('title')||'').trim(),description:String(d.get('description')||'').trim(),location:String(d.get('location')||'').trim(),startDate:String(d.get('startDate')||''),endDate:String(d.get('endDate')||''),deadline:String(d.get('deadline')||''),status:String(d.get('status')||'OPEN'),publicNames:d.get('publicNames')==='true',adminKey:String(d.get('adminKey')||''),adminConfirm:String(d.get('adminConfirm')||''),allowedDates:String(d.get('allowedDates')||'').split(',').map(v=>v.trim()).filter(Boolean)};
     if(!info.title || info.title.length>80 || !info.startDate || !info.endDate || info.endDate<info.startDate || !isIsoDate(info.startDate) || !isIsoDate(info.endDate))return toast('모임명과 시작·마지막 날짜를 확인해 주세요.');
     if((new Date(info.endDate)-new Date(info.startDate))/86400000 >=120)return toast('모임 날짜 범위는 최대 120일입니다.');
     if(info.deadline&&!isIsoDate(info.deadline))return toast('마감 날짜가 올바르지 않습니다.');
     if(info.allowedDates.some(d=>!isIsoDate(d)||d<info.startDate||d>info.endDate)||new Set(info.allowedDates).size!==info.allowedDates.length)return toast('후보 날짜를 YYYY-MM-DD 형식으로 중복 없이 입력해 주세요.');
-    if(isLive&&!/^[a-f0-9]{64}$/i.test(info.adminKey))return toast('Apps Script에서 발급한 64자리 관리자 키를 입력해 주세요.');
-    if(info.operation==='update'&&!isLive&&info.id===CONFIG.demoEvent.id)return toast('미리보기 기본 모임은 수정할 수 없습니다. 새 모임을 만들어 주세요.');
+    if(!isLive)return toast('Google Sheets 연결 전에는 등록할 수 없습니다.');
+    if(info.adminKey.length<8||info.adminKey.length>128)return toast('모임 관리 비밀번호를 8자 이상으로 입력해 주세요.');
+    if(info.operation==='create'&&info.adminKey!==info.adminConfirm)return toast('관리 비밀번호 확인 입력이 일치하지 않습니다.');
     state.saving=true;button.disabled=true;button.textContent='저장 확인 중…';
     try{
       await persistEvent(info);
-      toast(isLive?'Google Sheets에 모임이 등록되었습니다.':'이 브라우저에만 모임을 임시 등록했습니다.');
+      toast('Google Sheets에 모임이 등록되었습니다. 다른 기기에서도 확인할 수 있어요.');
       location.hash=`#event/${encodeURIComponent(info.id)}`;
       render();
     }catch(err){toast(err.message||'모임 저장에 실패했습니다.');}
@@ -309,33 +340,16 @@
     catch(_){toast(`주소창의 #event/ 링크를 복사해 공유해 주세요.`);}
   }
   async function persistResponse(event,draft) {
-    if (!isLive) {
-      const list=state.data.responses.filter(r=>r.id!==draft.id);
-      list.push({id:draft.id,eventId:event.id,name:draft.name,dates:[...draft.dates],updatedAt:new Date().toISOString()});
-      safeStore('demoResponses',JSON.stringify(list));state.data.responses=list;return true;
+    if(!isLive)throw new Error('Google Sheets 연결 전입니다.');
+    await postAndConfirm({action:'save',id:draft.id,token:draft.token,eventId:event.id,name:draft.name,dates:JSON.stringify(draft.dates),hp:''});
+    state.data=await readFromAppsScript();
+    const saved=state.data.responses.find(r=>r.id===draft.id && r.eventId===event.id);
+    if(!saved || JSON.stringify([...saved.dates].sort())!==JSON.stringify([...draft.dates].sort())) {
+      throw new Error('서버 저장은 확인했지만 목록 반영이 지연되고 있습니다. 새로고침해 주세요.');
     }
-    const previous=state.data.responses.find(r=>r.id===draft.id && r.eventId===event.id);
-    const previousUpdatedAt=previous?.updatedAt || '';
-    const params=new URLSearchParams({action:'save',id:draft.id,token:draft.token,eventId:event.id,name:draft.name,dates:JSON.stringify(draft.dates),hp:''});
-    // Apps Script의 POST 응답은 교차 출처 리디렉션으로 읽을 수 없습니다.
-    // 따라서 전송 직후 공개 읽기 API에서 동일 id와 날짜를 재확인합니다.
-    await fetch(CONFIG.appsScriptUrl, {method:'POST',mode:'no-cors',body:params,redirect:'follow',cache:'no-store'});
-    const delays=[350,850,1300,2200,3200,4800,6500];
-    for(const delay of delays) {
-      await new Promise(resolve=>setTimeout(resolve,delay));
-      try {
-        const updated=await readFromAppsScript();state.data=updated;
-        const match=updated.responses.find(r=>r.id===draft.id && r.eventId===event.id);
-        if(match &&
-          JSON.stringify([...match.dates].sort())===JSON.stringify([...draft.dates].sort()) &&
-          (!event.publicNames || match.name===draft.name) &&
-          (!previousUpdatedAt || match.updatedAt!==previousUpdatedAt)) return true;
-      } catch (_) { /* 백엔드 응답 지연 시 재시도 */ }
-    }
-    throw new Error('전송했지만 시트 저장 여부를 확인하지 못했습니다. 중복 응답 방지를 위해 같은 응답 ID로 다시 시도할 수 있습니다.');
   }
   async function submitResponse() {
-    if (state.saving || state.error)return;
+    if (state.saving || state.error || !isLive)return toast('Google Sheets 연결이 필요합니다.');
     const event=getEvent(route().id);if(!event || !eventIsOpen(event)){toast('참여할 수 없는 모임입니다.');return;}
     const draft=getDraft(event.id);
     const name=draft.name.trim().replace(/\s+/g,' ');
@@ -349,8 +363,8 @@
     state.saving=true;state.statusMessage='';render();
     try {
       await persistResponse(event,draft);
-      state.statusMessage=isLive?'Google Sheets에 응답이 저장되었습니다. 같은 브라우저에서 수정할 수 있어요.':'이 브라우저에 응답을 저장했습니다. 아직 Google Sheets에는 기록되지 않았습니다.';
-      toast(isLive?'응답 저장이 확인되었습니다!':'미리보기 응답을 저장했습니다.');
+      state.statusMessage='Google Sheets에 응답이 저장되었습니다. 다른 창에서 열어도 참여 현황에 표시됩니다.';
+      toast('응답 저장이 확인되었습니다!');
     } catch(error) {
       state.statusMessage='';toast(error.message||'저장하지 못했습니다. 연결 상태를 확인해 주세요.');
     } finally{state.saving=false;render();}

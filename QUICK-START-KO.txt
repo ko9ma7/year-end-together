@@ -1,20 +1,11 @@
-모두의 연말 — 실제 Google Sheets 연결 (최초 1회)
+[기존 GitHub 페이지가 열리는데 시트 저장이 안 되는 경우]
 
-1) 제공하신 원본 '연말모임일정 공고' 시트를 편집 화면에서 여세요.
-   /pubhtml 게시 주소에서는 설정할 수 없습니다.
-2) 확장 프로그램 → Apps Script → Code.gs 내용을 프로젝트
-   'apps-script/Code.gs' 전체 내용으로 교체 → 저장합니다.
-3) 함수 'setupSheets' 선택 → 실행 → 권한 승인.
-   원본 시트에 EVENTS, RESPONSES 탭이 생성됩니다.
-4) Apps Script '실행 로그'의 64자리 관리자 키를 비공개로 보관하세요.
-5) 배포 → 새 배포 → 웹 앱 → 실행 사용자: 나,
-   액세스 권한: 모든 사용자(Anyone) → 배포.
-6) 발급받은 https://script.google.com/macros/s/.../exec 주소를
-   이 프로젝트 config.js의 appsScriptUrl: '' 안에 붙여 넣으세요.
-7) 수정된 프로젝트를 GitHub에 push → Pages 방문.
-8) '새 모임 만들기' → 관리자 키 입력하여 모임 등록 → 참가자 날짜 제출.
-9) 원본 시트의 EVENTS와 RESPONSES에 실제 행이 생기는지 확인하세요.
+1) START-HERE-KO.md를 먼저 읽으세요.
+2) 원본 Google Sheet > 확장 프로그램 > Apps Script > apps-script/Code.gs 붙여넣기.
+3) setupSheets 실행, 배포 > 웹 앱 > 나로 실행 / 모든 사용자.
+4) 발급된 /exec 주소를 config.js의 appsScriptUrl에 넣기.
+5) UPDATE-EXISTING-GITHUB.cmd 실행.
+6) GitHub Pages를 다른 브라우저에서 열어 함께 조회되는지 확인.
 
-주의: 공개 pubhtml은 읽기용 링크입니다. URL만으로 쓰기 권한을 만들 수 없습니다.
-      기존 시트의 모든 탭을 게시해 두었다면 개인 이름 기록이 노출될 수 있습니다.
-      '게시' 설정에서 RESPONSES 탭을 제외하세요.
+이 버전은 연결 전 미리보기 저장을 하지 않습니다.
+모임 관리 비밀번호는 모임마다 설정되며, 시트에 저장되지 않고 서버 Script Properties에 해시로 보관됩니다.

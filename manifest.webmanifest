@@ -1,0 +1,15 @@
+{
+  "name":"모두의 연말 — 모임 일정 조율",
+  "short_name":"모두의 연말",
+  "description":"가능한 날짜를 함께 선택하고 모임을 준비해요.",
+  "start_url":"./",
+  "scope":"./",
+  "display":"standalone",
+  "background_color":"#fbf8f0",
+  "theme_color":"#172d28",
+  "lang":"ko",
+  "icons":[
+    {"src":"./assets/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"./assets/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

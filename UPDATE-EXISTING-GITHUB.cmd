@@ -17,11 +17,11 @@ if not exist "%SOURCE%\config.js" (
 where git >nul 2>&1 || (echo [ERROR] Install Git for Windows.& pause & exit /b 1)
 where gh >nul 2>&1 || (echo [ERROR] Install GitHub CLI.& pause & exit /b 1)
 gh auth status >nul 2>&1 || (echo [ERROR] Run: gh auth login& pause & exit /b 1)
-findstr /C:"appsScriptUrl: ''" "%SOURCE%\config.js" >nul 2>&1
+findstr /C:"apiUrl: ''" "%SOURCE%\config.js" >nul 2>&1
 if not errorlevel 1 (
-  echo [WARN] Google Sheets Apps Script URL is EMPTY in config.js.
-  echo [WARN] The site will NOT save events until /exec URL is configured.
-  choice /C YN /M "Continue deploying without Google Sheets connection"
+  echo [WARN] Cloudflare Worker API URL is EMPTY in config.js.
+  echo [WARN] The site will NOT save events until the Cloudflare Worker API URL is configured.
+  choice /C YN /M "Continue deploying without Cloudflare API connection"
   if errorlevel 2 exit /b 2
 )
 if not exist "C:\YE" mkdir "C:\YE"
@@ -39,7 +39,7 @@ if not exist "%TARGET%\.git" (
   git -C "%TARGET%" pull --ff-only || (echo [ERROR] Pull failed: resolve Git conflict manually.& pause & exit /b 1)
 )
 echo [CHECK] Copying source files into the existing repository
-robocopy "%SOURCE%" "%TARGET%" /E /XD .git _site __pycache__ .pytest_cache /XF *.zip *.pyc >nul
+robocopy "%SOURCE%" "%TARGET%" /E /XD .git _site __pycache__ .pytest_cache /XF *.zip *.pyc patch_frontend.py >nul
 if errorlevel 8 (echo [ERROR] File copy failed.& pause & exit /b 1)
 cd /d "%TARGET%"
 git config core.longpaths true
@@ -48,7 +48,7 @@ git diff --cached --quiet
 if not errorlevel 1 (
  echo [OK] No changed files to publish.
 ) else (
- git commit -m "feat: connect shared year-end events and organizer passwords" || (echo [ERROR] Commit failed.& pause & exit /b 1)
+ git commit -m "feat: switch meeting storage to Cloudflare D1" || (echo [ERROR] Commit failed.& pause & exit /b 1)
 )
 echo [CHECK] Pushing main without --force
 git push origin main || (echo [ERROR] Push rejected. Remote changed; retry after pull.& pause & exit /b 1)

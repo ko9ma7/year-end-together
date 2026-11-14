@@ -1,13 +1,4 @@
-[2026-11-14 비공개 모임/기존 기록 보존 수정본]
-
-1. README.md부터 읽으세요.
-2. 기존 Cloudflare D1 'year-end-together-db'에서 전체 백업을 먼저 만드세요.
-3. 같은 D1 바인딩(DB)을 유지한 채 기존 Worker 'floral-thunder-c7b0'의 코드를 cloudflare/worker.js로 교체해 배포하세요.
-4. /health 성공, /api/data 403(비공개)를 확인하세요.
-5. 기존 GitHub 저장소의 app.js와 styles.css를 교체하고 Pages를 배포하세요.
-6. 과거 완료된 모임의 기존 초대 링크를 열어 투표 수·이름·날짜가 남아 있는지 확인하세요.
-7. D1의 events/responses 행 수가 배포 전과 동일한지 확인하세요.
-
-중요: 새 데이터베이스 생성/초기화/삭제 SQL 실행 금지.
-기존 모임 종료 후 30일 자동 삭제 코드 제거. 이미 삭제된 데이터는 백업 없이는 복구 불가.
-이 ZIP을 GitHub에 올리는 것만으로 Cloudflare Worker가 바뀌지는 않습니다.
+1) 기존 Worker floral-thunder-c7b0에 cloudflare/worker.js 배포
+2) GitHub 저장소의 app.js, styles.css, index.html 교체
+3) 기존 모임 초대 링크로 열거나 홈페이지 기존 모임 불러오기 기능 사용
+기존 D1은 그대로 유지합니다. 자세한 내용: 기존모임-다시불러오기-배포방법.md

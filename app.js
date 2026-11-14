@@ -129,6 +129,20 @@
     return {page:'home'};
   }
   function shareUrl(id) {return `${location.href.split('#')[0]}#event/${encodeURIComponent(id)}`;}
+  function eventIdFromLink(raw) {
+    const value=String(raw||'').trim();
+    if(validEventId(value))return value;
+    try {
+      const url=new URL(value);
+      if(url.protocol!=='https:' && url.protocol!=='http:')return '';
+      const hash=decodeURIComponent(url.hash.slice(1));
+      if(hash.startsWith('event/')) {
+        const id=hash.slice('event/'.length);
+        return validEventId(id)?id:'';
+      }
+    }catch(_){ /* 링크나 ID 형식이 아니면 거부 */ }
+    return '';
+  }
 
   function normalizeData(items) {
     const events=[],responses=[];
@@ -210,11 +224,14 @@
     const open=eventIsOpen(event);
     return `<a class="event-card" href="#event/${encodeURIComponent(event.id)}" aria-label="${escapeHtml(event.title)} 일정 확인하기"><div class="event-card-top"><span class="event-badge ${open?'':'closed'}"><i class="live"></i>${open?'일정 조율 중':'참여 마감 · 기록 열람'}</span><span class="kicker">초대 링크 모임</span></div><h3>${escapeHtml(event.title)}</h3><p>${escapeHtml(event.description)}</p><div class="subinfo"><span>${icon('calendar')} ${escapeHtml(formatDate(event.startDate,{month:'numeric',day:'numeric'}))} ~ ${escapeHtml(formatDate(event.endDate,{month:'numeric',day:'numeric'}))}</span><span>${icon('users')} ${count}명 참여</span></div><div class="event-card-bottom"><span>${escapeHtml(event.location)}</span><strong>결과 확인 ${icon('arrow-right')}</strong></div></a>`;
   }
+  function openExistingMarkup() {
+    return `<section class="recover-section" id="open-existing"><div class="section-top"><div><span class="kicker">EXISTING INVITATION</span><h2>기존 모임 링크로 다시 열기</h2><p>예전에 사용했던 초대 링크 또는 모임 ID를 입력하면, 저장된 투표 기록을 그대로 불러옵니다. 새 모임이나 투표를 만들지 않습니다.</p></div></div><div class="panel recovery-panel"><form id="open-existing-form" novalidate><div class="field"><label for="existing-link">기존 모임 초대 링크 또는 모임 ID *</label><input id="existing-link" name="link" class="input-field" required autocomplete="off" spellcheck="false" placeholder="https://.../#event/모임ID 또는 모임ID"></div><div class="recovery-bottom"><span class="form-hint">링크에서 ID를 확인한 다음 기존 Cloudflare D1에서 이 모임과 투표 내역을 조회합니다.</span><button class="button dark" type="submit">기존 기록 불러오기 ${icon('arrow-right')}</button></div></form></div></section>`;
+  }
   function recoveryMarkup() {
     return `<section class="recover-section" id="recover"><div class="section-top"><div><span class="kicker">FIND MY GATHERING</span><h2>참여한 모임 다시 찾기</h2><p>초대 링크를 잃어버렸다면 이전에 제출한 내용으로 찾아보세요. 종료된 모임도 확인할 수 있습니다.</p></div></div><div class="panel recovery-panel"><form id="recover-form" novalidate><div class="recovery-grid"><div class="field"><label for="recover-title">정확한 모임 이름 *</label><input id="recover-title" name="title" class="input-field" maxlength="80" required placeholder="예: 우리 동호회 연말 모임"></div><div class="field"><label for="recover-name">투표할 때 적은 이름 *</label><input id="recover-name" name="name" class="input-field" maxlength="30" required placeholder="예: 김민수"></div><div class="field wide"><label for="recover-dates">당시 선택했던 날짜 전체 *</label><input id="recover-dates" name="dates" class="input-field" required placeholder="예: 2026-12-05, 2026-12-11"><p class="form-hint">선택한 날짜를 YYYY-MM-DD 형식으로 쉼표로 구분해 빠짐없이 입력해 주세요. 한 날만 선택했다면 한 개만 입력해도 됩니다.</p></div></div><div class="recovery-bottom"><span class="form-hint">기록 조회용입니다. 다른 기기에서 기존 투표를 수정하려면 원래 기기의 수정 권한이 필요합니다.</span><button class="button dark" type="submit" ${state.saving?'disabled':''}>기존 모임 찾기 ${icon('arrow-right')}</button></div></form></div></section>`;
   }
   function home() {
-    return `<main id="main" class="shell"><section class="hero" aria-labelledby="hero-title"><div class="hero-content"><div class="eyebrow"><span class="dot"></span> PRIVATE GATHERINGS</div><h1 id="hero-title">우리끼리 정하는 날,<br><em>함께하는 연말.</em></h1><p>모임 목록은 공개되지 않습니다.<br>주최자에게 받은 초대 링크로 입장해 날짜를 선택하세요.</p><div class="hero-actions"><a class="button primary" href="#recover">참여한 모임 다시 찾기 ${icon('arrow-right')}</a><a class="button ghost" href="#create">${icon('plus')} 새 비공개 모임 만들기</a></div></div>${artCalendar()}</section>${banner()}<section id="events" class="section"><div class="section-top"><div><span class="kicker">MY GATHERINGS</span><h2>이 기기에서 방문한 모임</h2><p>초대 링크를 열었거나 투표했던 모임만 여기에 보입니다. 다른 이용자의 모임은 보이지 않습니다.</p></div><span class="section-aside">${state.data.events.length}개</span></div>${state.data.events.length?`<div class="event-list">${state.data.events.map(eventCard).join('')}</div>`:`<div class="event-empty">${icon('calendar')}<h3>아직 저장된 모임이 없어요</h3><p>초대 링크를 열거나 아래에서 이전 투표 내용을 입력해 찾아보세요.</p><a href="#recover" class="button dark">모임 다시 찾기</a></div>`}</section>${recoveryMarkup()}<section id="how" class="how-section"><div class="section-top"><div><span class="kicker">HOW IT WORKS</span><h2>비공개 모임 참여 방법</h2></div></div><div class="steps"><div class="step"><span class="step-num">01</span><div><h3>초대 링크 열기</h3><p>모임 주최자에게 받은 전용 링크로 접속합니다.</p></div></div><div class="step"><span class="step-num">02</span><div><h3>이름과 가능한 날짜 제출</h3><p>날짜를 여러 개 선택하고 이름을 적으면 초대받은 참여자끼리 결과를 볼 수 있어요.</p></div></div><div class="step"><span class="step-num">03</span><div><h3>투표자와 날짜별 결과 확인</h3><p>가장 많은 사람이 선택한 날짜와 각 날짜의 참석 가능자를 확인합니다. 종료 후에도 기록은 남습니다.</p></div></div></div></section></main>`;
+    return `<main id="main" class="shell"><section class="hero" aria-labelledby="hero-title"><div class="hero-content"><div class="eyebrow"><span class="dot"></span> PRIVATE GATHERINGS</div><h1 id="hero-title">우리끼리 정하는 날,<br><em>함께하는 연말.</em></h1><p>모임 목록은 공개되지 않습니다.<br>주최자에게 받은 초대 링크로 입장해 날짜를 선택하세요.</p><div class="hero-actions"><a class="button primary" href="#open-existing">기존 모임 불러오기 ${icon('arrow-right')}</a><a class="button ghost" href="#create">${icon('plus')} 새 비공개 모임 만들기</a></div></div>${artCalendar()}</section>${banner()}<section id="events" class="section"><div class="section-top"><div><span class="kicker">MY GATHERINGS</span><h2>이 기기에서 방문한 모임</h2><p>초대 링크를 열었거나 투표했던 모임만 여기에 보입니다. 다른 이용자의 모임은 보이지 않습니다.</p></div><span class="section-aside">${state.data.events.length}개</span></div>${state.data.events.length?`<div class="event-list">${state.data.events.map(eventCard).join('')}</div>`:`<div class="event-empty">${icon('calendar')}<h3>아직 저장된 모임이 없어요</h3><p>기존 모임 링크를 붙여 넣거나, 참여 당시 입력한 정보로 모임을 다시 찾을 수 있습니다.</p><a href="#open-existing" class="button dark">기존 모임 불러오기</a></div>`}</section>${openExistingMarkup()}${recoveryMarkup()}<section id="how" class="how-section"><div class="section-top"><div><span class="kicker">HOW IT WORKS</span><h2>비공개 모임 참여 방법</h2></div></div><div class="steps"><div class="step"><span class="step-num">01</span><div><h3>초대 링크 열기</h3><p>모임 주최자에게 받은 전용 링크로 접속합니다.</p></div></div><div class="step"><span class="step-num">02</span><div><h3>이름과 가능한 날짜 제출</h3><p>날짜를 여러 개 선택하고 이름을 적으면 초대받은 참여자끼리 결과를 볼 수 있어요.</p></div></div><div class="step"><span class="step-num">03</span><div><h3>투표자와 날짜별 결과 확인</h3><p>가장 많은 사람이 선택한 날짜와 각 날짜의 참석 가능자를 확인합니다. 종료 후에도 기록은 남습니다.</p></div></div></div></section></main>`;
   }
   function calendarMarkup(event,draft) {
     const dates=new Set(dateRange(event));
@@ -304,6 +321,27 @@
     finally{state.saving=false;button.disabled=false;if(document.contains(button))button.textContent=info.operation==='create'?'모임 만들고 링크 받기':'모임 정보 저장하기';}
   }
 
+  async function submitOpenExisting(form) {
+    if(state.saving)return;
+    const id=eventIdFromLink(new FormData(form).get('link'));
+    if(!id)return toast('기존 모임의 초대 링크 또는 ID를 정확히 입력해 주세요.');
+    const button=form.querySelector('[type=submit]');state.saving=true;button.disabled=true;
+    try {
+      // Check API compatibility first. Never call the old bulk /api/data endpoint;
+      // in the legacy Worker it would run automatic record deletion.
+      const service=await apiRequest('/');
+      if(!Array.isArray(service.routes)||!service.routes.includes('/api/events/:id')) {
+        throw new Error('서버(Worker)가 이전 버전입니다. 제공된 worker.js를 기존 Worker에 먼저 배포해야 합니다.');
+      }
+      const result=await apiRequest('/api/events/'+encodeURIComponent(id));
+      if(!result.event || result.event.id!==id)throw new Error('입력한 ID와 일치하는 모임을 찾지 못했습니다.');
+      rememberEvent(id);
+      location.hash=`#event/${encodeURIComponent(id)}`;
+      await refreshData(true);
+      toast('기존 모임과 투표 기록을 불러왔습니다.');
+    }catch(error){toast(error.message||'기존 모임을 열지 못했습니다.');}
+    finally{state.saving=false;if(document.contains(button))button.disabled=false;}
+  }
   async function submitRecovery(form) {
     if(state.saving)return;
     const d=new FormData(form);
@@ -409,11 +447,11 @@
       getDraft(current.id).consent=event.target.checked;saveDraft(current.id);
     }
   });
-  root.addEventListener('submit',event=>{if(event.target.getAttribute('id')==='response-form'){event.preventDefault();submitResponse();}else if(event.target.getAttribute('id')==='event-form'){event.preventDefault();submitEvent(event.target);}else if(event.target.getAttribute('id')==='recover-form'){event.preventDefault();submitRecovery(event.target);}});
+  root.addEventListener('submit',event=>{if(event.target.getAttribute('id')==='response-form'){event.preventDefault();submitResponse();}else if(event.target.getAttribute('id')==='event-form'){event.preventDefault();submitEvent(event.target);}else if(event.target.getAttribute('id')==='recover-form'){event.preventDefault();submitRecovery(event.target);}else if(event.target.getAttribute('id')==='open-existing-form'){event.preventDefault();submitOpenExisting(event.target);}});
   window.addEventListener('hashchange',()=>{
     state.menuOpen=false;state.statusMessage='';
     const r=route();if((r.page==='event'||(r.page==='edit'&&r.id))&&validEventId(r.id))refreshData(true);else render();
-    if(location.hash==='#how'||location.hash==='#events'||location.hash==='#recover'){
+    if(location.hash==='#how'||location.hash==='#events'||location.hash==='#recover'||location.hash==='#open-existing'){
       document.getElementById(location.hash.slice(1))?.scrollIntoView({behavior:'smooth'});
     }else window.scrollTo({top:0,behavior:'instant'});
   });

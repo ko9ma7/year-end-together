@@ -14,35 +14,3 @@
 /* Event creator and management */
 .edit-wrap{max-width:870px;margin:29px auto 80px}.edit-intro{text-align:center;margin:22px 0 29px}.edit-intro h1{font-size:clamp(31px,5vw,44px);letter-spacing:-1.8px;margin:8px 0 6px}.edit-intro p{color:var(--muted);margin:0}.edit-panel{padding:32px}.edit-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 22px}.field{min-width:0}.field.wide{grid-column:1/-1}.field>label{font-size:13px;font-weight:800;display:block;margin-bottom:7px}.field .checkbox-line{display:flex;margin:3px 0 0;font-weight:450}.edit-textarea{resize:vertical;height:90px;min-height:90px;line-height:1.6}.edit-bottom{display:flex;justify-content:space-between;gap:17px;align-items:center;border-top:1px solid var(--line);padding-top:23px;margin-top:23px}.edit-warning{color:var(--muted);font-size:12px;max-width:440px}.edit-help{border:1px solid var(--line);border-radius:16px;padding:18px 23px;margin-top:20px;background:var(--surface);font-size:13px;line-height:1.85}.edit-help h2{font-size:16px;margin:0 0 5px}.edit-help p{margin:0;color:var(--muted)}.detail-admin-actions{display:flex;gap:8px;flex-wrap:wrap}.detail-admin-actions .button{white-space:nowrap}
 @media(max-width:640px){.edit-panel{padding:18px}.edit-form-grid{grid-template-columns:minmax(0,1fr);gap:16px}.edit-bottom{flex-direction:column;align-items:stretch}.edit-bottom .button{width:100%}.detail-admin-actions{width:100%}.detail-admin-actions .button{flex:1}.edit-wrap{margin-top:18px}}
-
-/* Private gatherings: invitations, recovery, and complete voter breakdown */
-.recover-section{padding:10px 0 52px}
-.recovery-panel{padding:27px}
-.recovery-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 22px}
-.recovery-grid .field.wide{grid-column:1/-1}
-.recovery-bottom{margin-top:18px;display:flex;align-items:center;justify-content:space-between;gap:18px}
-.recovery-bottom .form-hint{max-width:550px;margin:0}
-.winner-summary{padding:22px 26px;margin-bottom:22px;border:1px solid var(--line);background:var(--pale);border-radius:19px}
-.winner-summary>strong{display:flex;align-items:center;gap:9px;font-size:15px}
-.winner-summary>strong svg{height:19px;width:19px;color:var(--coral)}
-.winner-summary p{margin:7px 0 9px;font-weight:700}
-.result-item+.result-item{border-top:1px solid var(--line)}
-.result-item{padding:5px 0 10px}
-.result-voters{padding-left:3px}
-.voter-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
-.voter-chip{font-size:11px;font-weight:700;background:var(--pale);border:1px solid var(--line);border-radius:20px;padding:3px 9px;line-height:1.5;overflow-wrap:anywhere}
-.person-info{min-width:0;align-items:flex-start}
-.person-body{min-width:0;display:flex;flex-direction:column}
-.person-body strong{overflow-wrap:anywhere}
-.person-body small{display:block;color:var(--muted);line-height:1.65;overflow-wrap:anywhere}
-.person>span{flex-shrink:0}
-.all-dates-panel{margin-top:22px;padding:27px}
-.all-dates-panel h3{font-size:17px;margin:0}
-.all-dates-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 22px;margin-top:16px}
-.all-date{min-width:0;padding:15px;border-radius:13px;border:1px solid var(--line)}
-.all-date strong{font-size:12px}
-@media(max-width:760px){.recovery-grid,.all-dates-list{grid-template-columns:1fr}.recovery-panel{padding:20px}.recovery-bottom{align-items:stretch;flex-direction:column}.recovery-bottom button{width:100%}}
-@media(max-width:400px){.recovery-panel{padding:15px}.winner-summary{padding:17px}.all-dates-panel{padding:17px}.result-voters .voter-chip{font-size:10px}}
-.archive-notice{border:1px solid var(--line);background:var(--pale);color:var(--muted);border-radius:13px;padding:13px 18px;margin-top:22px;display:flex;align-items:flex-start;gap:10px;font-size:13px}
-.archive-notice svg{width:18px;height:18px;flex-shrink:0;margin-top:1px}
-.archive-notice+.result-section{padding-top:18px}

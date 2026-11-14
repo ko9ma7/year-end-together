@@ -1,20 +1,18 @@
 /**
- * 모두의 연말 · Cloudflare Worker + D1
- * Worker: floral-thunder-c7b0  |  D1 binding: DB -> year-end-together-db
- * Existing tables: events, responses (previously created in the D1 console).
- * Creates only one auxiliary table, response_tokens, for secure participant edits.
- * No Google Sheets or Apps Script access.
+ * 모두의 연말 · Private invitation-link API (Cloudflare Worker + existing D1).
+ * Important: events/responses/response_tokens are NOT dropped, rewritten or pruned.
+ * Existing event IDs and response edit tokens remain valid, including closed events.
+ * An unguessable event ID is the invitation capability; never enumerate IDs publicly.
  */
 const ALLOWED_ORIGINS = new Set([
   'https://ko9ma7.github.io',
   'http://localhost:8000',
   'http://127.0.0.1:8000',
 ]);
-const DAYS_TO_KEEP_AFTER_EVENT = 30;
-const MAX_EVENTS = 300;
+const MAX_EVENTS = 10_000;
 const MAX_RESPONSES_PER_EVENT = 300;
-// Free Workers have a 10ms CPU budget. Use modest PBKDF2 cost; choose a long unique organizer password.
 const PASSWORD_ITERATIONS = 10_000;
+const RECOVERY_ATTEMPTS_PER_DAY = 20;
 
 class ApiError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -28,6 +26,7 @@ function todayKST() {
   return new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 }
 function validId(id) { return typeof id === 'string' && /^[a-f0-9-]{32,36}$/i.test(id); }
+function validNewId(id) { return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id); }
 function inputText(value, max = 120) { return String(value ?? '').trim().slice(0, max + 1); }
 function bounded(value, max, required = false, multiline = false) {
   const s = inputText(value, max);
@@ -41,8 +40,9 @@ function parseJsonArray(value) {
   try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch (_) { return []; }
 }
 function dateOptions(start, end, allowed) {
+  if (!isoDay(start) || !isoDay(end)) throw new ApiError('모임 날짜를 확인해 주세요.');
   const duration = (Date.parse(end) - Date.parse(start)) / 86400000;
-  if (!isoDay(start) || !isoDay(end) || duration < 0 || duration >= 120) throw new ApiError('모임 기간은 1~120일 사이여야 합니다.');
+  if (duration < 0 || duration >= 120) throw new ApiError('모임 기간은 1~120일 사이여야 합니다.');
   const candidates = parseJsonArray(allowed);
   if (candidates.length > 120 || new Set(candidates).size !== candidates.length || candidates.some(d => !isoDay(d) || d < start || d > end)) {
     throw new ApiError('후보 날짜 형식이나 범위를 확인해 주세요.');
@@ -65,7 +65,7 @@ function cleanEvent(data) {
     publicNames:data.publicNames === true,allowedDates};
 }
 function randomHex(bytes = 16) {
-  const value = new Uint8Array(bytes);crypto.getRandomValues(value);
+  const value = new Uint8Array(bytes); crypto.getRandomValues(value);
   return [...value].map(b => b.toString(16).padStart(2,'0')).join('');
 }
 function hexBytes(s) { return new Uint8Array(s.match(/../g).map(h=>parseInt(h,16))); }
@@ -80,13 +80,13 @@ async function createPasswordHash(secret) {
 }
 function safeCompare(a,b) {
   if (a.length !== b.length) return false;
-  let n = 0;for (let i=0;i<a.length;i++) n |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  let n = 0; for (let i=0;i<a.length;i++) n |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return n === 0;
 }
 async function verifyPassword(secret, stored) {
   const parts = String(stored || '').split('$');
   if (parts.length !== 4 || parts[0] !== 'pbkdf2' || !/^[a-f0-9]{32}$/.test(parts[2]) || !/^\d+$/.test(parts[1])) return false;
-  const rounds = Number(parts[1]);if(rounds < 10_000 || rounds > 500_000) return false;
+  const rounds = Number(parts[1]); if(rounds < 10_000 || rounds > 500_000) return false;
   return safeCompare(await passwordDigest(secret,parts[2],rounds), parts[3]);
 }
 async function tokenHash(token) {
@@ -98,10 +98,8 @@ function eventPublic(row) {
     status:row.status === 'CLOSED' ? 'CLOSED' : 'OPEN',publicNames:row.public_names === 1,
     allowedDates:parseJsonArray(row.allowed_dates)};
 }
-function responsePublic(row, eventsById) {
-  const ev = eventsById.get(row.event_id);
-  if (!ev) return null;
-  return {id:row.id,eventId:row.event_id,name:ev.publicNames ? row.name : '비공개',
+function responseForInvite(row) {
+  return {id:row.id,eventId:row.event_id,name:row.name,
     dates:parseJsonArray(row.dates_json),updatedAt:row.updated_at || ''};
 }
 function isOpen(row) {
@@ -126,27 +124,12 @@ async function ensureTokenTable(env) {
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
 }
-async function cleanupExpired(env) {
-  await ensureTokenTable(env);
-  // Physical cleanup occurs on reads, writes, and (optionally) a scheduled Cron.
-  // Delete child rows first to respect D1 foreign keys.
-  const expired = `SELECT id FROM events WHERE date(end_date, '+${DAYS_TO_KEEP_AFTER_EVENT} days') < date('now','+9 hours')`;
-  await env.DB.batch([
-    env.DB.prepare(`DELETE FROM response_tokens WHERE response_id IN (SELECT id FROM responses WHERE event_id IN (${expired}))`),
-    env.DB.prepare(`DELETE FROM responses WHERE event_id IN (${expired})`),
-    env.DB.prepare(`DELETE FROM events WHERE id IN (${expired})`),
-  ]);
-}
-async function readAll(env) {
-  await cleanupExpired(env);
-  const [evRows, responseRows] = await Promise.all([
-    env.DB.prepare('SELECT id,title,description,location,start_date,end_date,deadline,status,public_names,allowed_dates FROM events ORDER BY created_at DESC LIMIT 300').all(),
-    env.DB.prepare("SELECT id,event_id,name,dates_json,updated_at FROM responses WHERE status = 'ACTIVE' ORDER BY created_at ASC LIMIT 90000").all(),
-  ]);
-  const events = (evRows.results || []).map(eventPublic);
-  const map = new Map(events.map(e=>[e.id,e]));
-  const responses = (responseRows.results || []).map(r=>responsePublic(r,map)).filter(Boolean);
-  return {ok:true,events,responses,serverTime:new Date().toISOString()};
+async function readEvent(env, id) {
+  if (!validId(id)) throw new ApiError('모임을 찾을 수 없습니다.',404);
+  const row = await env.DB.prepare('SELECT id,title,description,location,start_date,end_date,deadline,status,public_names,allowed_dates FROM events WHERE id=?').bind(id).first();
+  if (!row) throw new ApiError('모임을 찾을 수 없습니다.',404);
+  const responseRows = await env.DB.prepare("SELECT id,event_id,name,dates_json,updated_at FROM responses WHERE event_id=? AND status='ACTIVE' ORDER BY created_at ASC LIMIT 300").bind(id).all();
+  return {ok:true,event:eventPublic(row),responses:(responseRows.results||[]).map(responseForInvite)};
 }
 async function saveEvent(env, data) {
   const operation = data.operation === 'update' ? 'update' : 'create';
@@ -159,6 +142,8 @@ async function saveEvent(env, data) {
       if (await verifyPassword(password, existing.password_hash)) return {ok:true,id:input.id,operation:'create',alreadyExists:true};
       throw new ApiError('이미 사용 중인 모임 ID입니다.',409);
     }
+    // Invitation links must contain high-entropy, browser-generated UUIDv4 IDs.
+    if (!validNewId(input.id)) throw new ApiError('안전한 모임 링크를 생성할 수 없습니다. 새로고침 후 다시 시도해 주세요.');
     const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM events').first();
     if ((count?.count||0) >= MAX_EVENTS) throw new ApiError('등록 가능한 모임 수를 초과했습니다.',429);
     const passwordHash = await createPasswordHash(password);
@@ -169,6 +154,7 @@ async function saveEvent(env, data) {
   }
   if (!existing) throw new ApiError('수정할 모임을 찾을 수 없습니다.',404);
   if (!await verifyPassword(password, existing.password_hash)) throw new ApiError('관리 비밀번호가 올바르지 않습니다.',403);
+  // UPDATE only this event. Never recreate tables, delete responses or rotate existing link IDs.
   await env.DB.prepare(`UPDATE events SET title=?,description=?,location=?,start_date=?,end_date=?,deadline=?,status=?,public_names=?,allowed_dates=?,updated_at=? WHERE id=?`)
     .bind(input.title,input.description,input.location,input.startDate,input.endDate,input.deadline,input.status,
       input.publicNames?1:0,JSON.stringify(input.allowedDates),new Date().toISOString(),input.id).run();
@@ -207,6 +193,41 @@ async function saveResponse(env, data) {
   ]);
   return {ok:true,id,eventId,operation:'create'};
 }
+
+// Recovery is for users who lost the invitation link, including after a meeting closes.
+// Older votes stored only name and dates, so require exact event title + name + COMPLETE
+// set of originally selected dates. Do not expose searchable event/participant lists.
+async function recoverEvent(env, request, data) {
+  const title = bounded(data.title,80,true);
+  const name = bounded(data.name,30,true).replace(/\s+/g,' ');
+  const dates = parseJsonArray(data.dates);
+  if (name.length < 2 || !Array.isArray(dates) || dates.length < 1 || dates.length > 120 ||
+      dates.some(d => !isoDay(d)) || new Set(dates).size !== dates.length) {
+    throw new ApiError('모임 이름, 참여자 이름, 투표했던 모든 날짜를 정확히 입력해 주세요.');
+  }
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS recovery_attempts (
+    attempt_key TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0
+  )`).run();
+  const day = todayKST();
+  // Hash the IP with a day bucket; do not store raw IP addresses.
+  const sourceIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const key = await tokenHash(`recover:${day}:${sourceIp}`);
+  const prior = await env.DB.prepare('SELECT attempts FROM recovery_attempts WHERE attempt_key=?').bind(key).first();
+  if ((prior?.attempts||0) >= RECOVERY_ATTEMPTS_PER_DAY) throw new ApiError('복구 시도 횟수를 초과했습니다. 다음 날 다시 시도하거나 초대 링크를 요청해 주세요.',429);
+  await env.DB.prepare(`INSERT INTO recovery_attempts (attempt_key, attempts) VALUES (?,1)
+    ON CONFLICT(attempt_key) DO UPDATE SET attempts=attempts+1`).bind(key).run();
+  const matches = await env.DB.prepare(`SELECT e.id, r.dates_json FROM events e
+    JOIN responses r ON r.event_id=e.id
+    WHERE e.title=? AND r.name=? AND r.status='ACTIVE'`).bind(title,name).all();
+  const target = [...dates].sort().join(',');
+  const foundIds = new Set((matches.results||[]).filter(row=>{
+    const saved = parseJsonArray(row.dates_json);
+    return saved.length === dates.length && [...saved].sort().join(',') === target;
+  }).map(row=>row.id));
+  // Generic failure prevents disclosing which portion of an identity matched.
+  if (foundIds.size !== 1) throw new ApiError('일치하는 모임을 확인하지 못했습니다. 입력 정보를 확인하거나 주최자에게 링크를 요청해 주세요.',404);
+  return {ok:true,eventId:[...foundIds][0]};
+}
 function corsHeaders(request) {
   const origin=request.headers.get('Origin');
   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin','X-Content-Type-Options':'nosniff'};
@@ -242,21 +263,21 @@ export default {
         const result=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('events','responses') ORDER BY name").all();
         return json(request,{ok:true,database:'connected',tables:(result.results||[]).map(r=>r.name)});
       }
-      if (request.method==='GET' && path==='/api/data') return json(request,await readAll(env));
-      if (request.method==='POST' && path==='/api/events') {
-        await cleanupExpired(env);
-        return json(request,await saveEvent(env,await readBody(request)));
+      // Never return event identifiers or vote details in an unauthenticated bulk API.
+      if (path==='/api/data') throw new ApiError('모임 목록은 비공개입니다. 초대 링크로 입장해 주세요.',403);
+      if (request.method==='GET' && /^\/api\/events\/[a-f0-9-]{32,36}$/i.test(path)) {
+        return json(request,await readEvent(env,decodeURIComponent(path.slice('/api/events/'.length))));
       }
-      if (request.method==='POST' && path==='/api/responses') {
-        await cleanupExpired(env);
-        return json(request,await saveResponse(env,await readBody(request)));
-      }
-      if (request.method==='GET' && path==='/') return json(request,{ok:true,service:'year-end-together-api',routes:['/health','/api/data']});
+      if (request.method==='POST' && path==='/api/recover') return json(request,await recoverEvent(env,request,await readBody(request)));
+      if (request.method==='POST' && path==='/api/events') return json(request,await saveEvent(env,await readBody(request)));
+      if (request.method==='POST' && path==='/api/responses') return json(request,await saveResponse(env,await readBody(request)));
+      if (request.method==='GET' && path==='/') return json(request,{ok:true,service:'year-end-together-api',routes:['/health','/api/events/:id','/api/recover']});
       throw new ApiError('지원하지 않는 주소 또는 요청 방식입니다.',404);
     }catch(error) {
       if (!(error instanceof ApiError)) console.error('Worker error',error);
       return json(request,{ok:false,error:error instanceof ApiError ? error.message : '서버 처리 중 오류가 발생했습니다.'},error instanceof ApiError?error.status:500);
     }
   },
-  async scheduled(controller,env,ctx) {ctx.waitUntil(cleanupExpired(env));},
+  // Intentionally no automatic deletion, including on scheduled Cron invocations.
+  async scheduled() {},
 };

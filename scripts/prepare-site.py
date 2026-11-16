@@ -11,7 +11,7 @@ OUT = ROOT / '_site'
 if OUT.exists():
     shutil.rmtree(OUT)
 OUT.mkdir()
-for name in ('index.html', '404.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'robots.txt', '.nojekyll'):
+for name in ('index.html', '404.html', 'styles.css', 'app.js', 'maps.js', 'config.js', 'manifest.webmanifest', 'robots.txt', '.nojekyll'):
     shutil.copy2(ROOT / name, OUT / name)
 shutil.copytree(ROOT / 'assets', OUT / 'assets')
 

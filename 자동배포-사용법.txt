@@ -1,0 +1,13 @@
+﻿모두의 연말 V2 Windows 자동 배포
+
+1) 전체 ZIP을 새 폴더에 압축 해제합니다.
+2) Node.js LTS: https://nodejs.org/ 설치
+3) Git for Windows: https://git-scm.com/download/win 설치
+4) deploy.cmd (또는 자동배포.cmd)를 더블클릭합니다.
+5) Cloudflare 로그인 후 진행합니다. 스크립트가 먼저 기존 D1을 SQL 파일로 자동 백업합니다.
+6) 장소 기능 테이블만 추가하고 Worker를 배포한 다음 GitHub main에 사이트 파일을 push합니다.
+7) GitHub Actions에서 Pages 배포 성공을 확인합니다.
+
+이 스크립트는 새 D1을 만들지 않고 events/responses/response_tokens 기존 행을 삭제하지 않습니다.
+자동 백업 파일은 Documents\YearEndTogetherBackups 폴더에 저장됩니다.
+Cloudflare 콘솔에 SQL을 복사해 넣을 필요가 없습니다.

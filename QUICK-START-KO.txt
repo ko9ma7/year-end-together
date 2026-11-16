@@ -1,4 +1,17 @@
-1) 기존 Worker floral-thunder-c7b0에 cloudflare/worker.js 배포
-2) GitHub 저장소의 app.js, styles.css, index.html 교체
-3) 기존 모임 초대 링크로 열거나 홈페이지 기존 모임 불러오기 기능 사용
-기존 D1은 그대로 유지합니다. 자세한 내용: 기존모임-다시불러오기-배포방법.md
+모두의 연말 — 날짜 + 장소 통합 버전 2026-11-16
+
+[Windows 자동 배포]
+1. 전체 ZIP 압축 해제
+2. Node.js LTS와 Git for Windows 설치
+3. 자동배포.cmd 더블클릭
+4. Cloudflare 브라우저 로그인 후 D1 백업 확인 질문에 Y, 최종 확인에 DEPLOY 입력
+5. GitHub Actions에서 Deploy GitHub Pages가 초록색 완료인지 확인
+
+[수동 배포]
+1. Cloudflare D1 year-end-together-db -> cloudflare/schema.sql 실행 (CREATE IF NOT EXISTS만 사용)
+2. Cloudflare Worker floral-thunder-c7b0 -> cloudflare/worker.js 배포, D1 바인딩 DB 연결 확인
+3. GitHub 저장소에 index.html / app.js / maps.js / styles.css / config.js / scripts/prepare-site.py 업로드
+4. GitHub Actions 초록색 배포 완료 확인
+5. https://ko9ma7.github.io/year-end-together/ 에서 테스트
+
+자세한 안내서: START-HERE-KO.md, 1-먼저-DB-연결.md, 2-Worker-사이트-배포.md

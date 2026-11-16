@@ -1,0 +1,20 @@
+﻿모두의 연말 V2 - D1 ID 오류 수정
+
+이전 실행은 2/7 단계에서 중단됐으므로 DB 백업, SQL 적용, Worker 배포, GitHub 업로드는 시작되지 않았습니다.
+
+수정 내용:
+1. wrangler d1 list --json의 출력 속성에 의존하던 ID 추출을 제거했습니다.
+2. 사용자가 보내준 Cloudflare 대시보드 URL에 보이는 기존 D1 UUID를 사용합니다.
+3. wrangler whoami의 Account ID가 예상 계정과 다르면 중단합니다.
+4. wrangler d1 info year-end-together-db가 성공해야 다음 단계로 갑니다.
+5. D1 export의 확인 옵션을 --skip-confirmation으로 수정했습니다.
+
+실행:
+- 기존 압축 폴더 대신 이 수정 ZIP을 새 폴더에 풉니다.
+- 폴더 안의 deploy.cmd 또는 자동배포.cmd를 실행합니다.
+- D1 정보 확인 및 백업이 성공한 뒤에만 DEPLOY를 입력합니다.
+
+주의:
+- 기존 D1 데이터베이스를 삭제/생성하지 않습니다.
+- SQL은 CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS만 실행합니다.
+- 실제 배포는 사용자 PC에서 로그인 및 확인 후 진행됩니다.

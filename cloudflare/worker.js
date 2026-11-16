@@ -61,8 +61,23 @@ function cleanEvent(data) {
   const deadline = String(data.deadline || '');
   if (deadline && !isoDay(deadline)) throw new ApiError('마감일이 올바르지 않습니다.');
   const status = data.status === 'CLOSED' ? 'CLOSED' : 'OPEN';
+  const mode = ['date','place','both'].includes(data.mode) ? data.mode : 'date';
+  const proposalDeadline = String(data.proposalDeadline || '');
+  const voteDeadline = String(data.voteDeadline || '');
+  const meetingDate = String(data.meetingDate || '');
+  if (mode !== 'date') {
+    if (!isoDay(proposalDeadline) || !isoDay(voteDeadline) || proposalDeadline >= voteDeadline)
+      throw new ApiError('장소 추천 마감일은 투표 마감일보다 빨라야 합니다.');
+    const now = todayKST();
+    if (status === 'OPEN' && (voteDeadline < now || Date.parse(voteDeadline) - Date.parse(now) > 366*86400000))
+      throw new ApiError('장소 투표 마감일은 오늘부터 1년 이내로 지정하세요.');
+    if (mode === 'both' && (!deadline || deadline >= proposalDeadline))
+      throw new ApiError('날짜 응답 마감일은 장소 추천 마감일보다 빨라야 합니다.');
+    if (meetingDate && (!isoDay(meetingDate) || meetingDate < voteDeadline))
+      throw new ApiError('확정된 모임 날짜는 장소 투표 마감일 이후여야 합니다.');
+  }
   return {id,title,description,location,startDate,endDate,deadline,status,
-    publicNames:data.publicNames === true,allowedDates};
+    publicNames:data.publicNames === true,allowedDates,mode,proposalDeadline,voteDeadline,meetingDate};
 }
 function randomHex(bytes = 16) {
   const value = new Uint8Array(bytes); crypto.getRandomValues(value);
@@ -96,7 +111,9 @@ function eventPublic(row) {
   return {id:row.id,title:row.title,description:row.description || '',location:row.location || '',
     startDate:row.start_date,endDate:row.end_date,deadline:row.deadline || '',
     status:row.status === 'CLOSED' ? 'CLOSED' : 'OPEN',publicNames:row.public_names === 1,
-    allowedDates:parseJsonArray(row.allowed_dates)};
+    allowedDates:parseJsonArray(row.allowed_dates),
+    mode:row.mode || 'date', proposalDeadline:row.proposal_deadline || '',
+    voteDeadline:row.vote_deadline || '', meetingDate:row.meeting_date || ''};
 }
 function responseForInvite(row) {
   return {id:row.id,eventId:row.event_id,name:row.name,
@@ -124,12 +141,44 @@ async function ensureTokenTable(env) {
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
 }
+function placeStage(row) {
+  if (!row || !['both','place'].includes(row.mode)) return 'none';
+  if (row.status === 'CLOSED') return 'result';
+  const now = todayKST();
+  if (row.mode === 'both' && row.deadline && now <= row.deadline) return 'waiting';
+  if (now <= row.proposal_deadline) return 'proposals';
+  if (now <= row.vote_deadline) return 'voting';
+  return 'result';
+}
+function winnerFrom(proposals, votes, closed) {
+  if (!closed || proposals.length === 0) return null;
+  const counts=new Map();
+  for(const vote of votes)counts.set(vote.proposalId,(counts.get(vote.proposalId)||0)+1);
+  const maximum=Math.max(0,...counts.values());
+  if (maximum===0 && proposals.length>1) return null;
+  const ranked=[...proposals].sort((a,b) => (counts.get(b.id)||0)-(counts.get(a.id)||0) ||
+    a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  return {proposalId:ranked[0].id,votes:counts.get(ranked[0].id)||0,
+    tie:ranked.length>1 && (counts.get(ranked[0].id)||0)===(counts.get(ranked[1].id)||0)};
+}
 async function readEvent(env, id) {
   if (!validId(id)) throw new ApiError('모임을 찾을 수 없습니다.',404);
-  const row = await env.DB.prepare('SELECT id,title,description,location,start_date,end_date,deadline,status,public_names,allowed_dates FROM events WHERE id=?').bind(id).first();
+  const row = await env.DB.prepare(`SELECT e.id,e.title,e.description,e.location,e.start_date,e.end_date,
+    e.deadline,e.status,e.public_names,e.allowed_dates,
+    s.mode,s.proposal_deadline,s.vote_deadline,s.meeting_date
+    FROM events e LEFT JOIN event_settings s ON e.id=s.event_id WHERE e.id=?`).bind(id).first();
   if (!row) throw new ApiError('모임을 찾을 수 없습니다.',404);
-  const responseRows = await env.DB.prepare("SELECT id,event_id,name,dates_json,updated_at FROM responses WHERE event_id=? AND status='ACTIVE' ORDER BY created_at ASC LIMIT 300").bind(id).all();
-  return {ok:true,event:eventPublic(row),responses:(responseRows.results||[]).map(responseForInvite)};
+  const responseRows = row.mode === 'place' ? {results:[]} : await env.DB.prepare(
+    "SELECT id,event_id,name,dates_json,updated_at FROM responses WHERE event_id=? AND status='ACTIVE' ORDER BY created_at ASC LIMIT 300").bind(id).all();
+  const propRows=await env.DB.prepare(`SELECT id,event_id,proposer_name,place_name,comment,lat,lng,created_at
+    FROM place_proposals WHERE event_id=? ORDER BY created_at ASC,id ASC LIMIT 200`).bind(id).all();
+  const voteRows=await env.DB.prepare(`SELECT voter_name,proposal_id FROM place_votes WHERE event_id=? LIMIT 300`).bind(id).all();
+  const proposals=(propRows.results||[]).map(p=>({id:p.id,eventId:p.event_id,proposer:p.proposer_name,
+    name:p.place_name,comment:p.comment,lat:p.lat,lng:p.lng,createdAt:p.created_at}));
+  const votes=(voteRows.results||[]).map(v=>({voterName:v.voter_name,proposalId:v.proposal_id}));
+  const stage=placeStage(row);
+  return {ok:true,event:eventPublic(row),responses:(responseRows.results||[]).map(responseForInvite),
+    place:{stage,proposals,votes,winner:winnerFrom(proposals,votes,stage==='result')}};
 }
 async function saveEvent(env, data) {
   const operation = data.operation === 'update' ? 'update' : 'create';
@@ -147,17 +196,35 @@ async function saveEvent(env, data) {
     const count = await env.DB.prepare('SELECT COUNT(*) AS count FROM events').first();
     if ((count?.count||0) >= MAX_EVENTS) throw new ApiError('등록 가능한 모임 수를 초과했습니다.',429);
     const passwordHash = await createPasswordHash(password);
-    await env.DB.prepare(`INSERT INTO events (id,title,description,location,start_date,end_date,deadline,status,public_names,allowed_dates,password_hash,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(input.id,input.title,input.description,input.location,input.startDate,input.endDate,input.deadline,
-      input.status,input.publicNames?1:0,JSON.stringify(input.allowedDates),passwordHash,new Date().toISOString(),new Date().toISOString()).run();
+    const now=new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO events (id,title,description,location,start_date,end_date,deadline,status,public_names,allowed_dates,password_hash,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(input.id,input.title,input.description,input.location,input.startDate,input.endDate,input.deadline,
+        input.status,1,JSON.stringify(input.allowedDates),passwordHash,now,now),
+      env.DB.prepare(`INSERT INTO event_settings(event_id,mode,proposal_deadline,vote_deadline,meeting_date)
+        VALUES (?,?,?,?,?)`).bind(input.id,input.mode,input.proposalDeadline,input.voteDeadline,input.meetingDate)
+    ]);
     return {ok:true,id:input.id,operation:'create'};
   }
   if (!existing) throw new ApiError('수정할 모임을 찾을 수 없습니다.',404);
   if (!await verifyPassword(password, existing.password_hash)) throw new ApiError('관리 비밀번호가 올바르지 않습니다.',403);
-  // UPDATE only this event. Never recreate tables, delete responses or rotate existing link IDs.
-  await env.DB.prepare(`UPDATE events SET title=?,description=?,location=?,start_date=?,end_date=?,deadline=?,status=?,public_names=?,allowed_dates=?,updated_at=? WHERE id=?`)
-    .bind(input.title,input.description,input.location,input.startDate,input.endDate,input.deadline,input.status,
-      input.publicNames?1:0,JSON.stringify(input.allowedDates),new Date().toISOString(),input.id).run();
+  // Existing votes lock place phase and mode; never change the candidates after voting.
+  const placeCount=await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM place_proposals WHERE event_id=?) +
+    (SELECT COUNT(*) FROM place_votes WHERE event_id=?) AS count`).bind(input.id,input.id).first();
+  const settings=await env.DB.prepare('SELECT * FROM event_settings WHERE event_id=?').bind(input.id).first();
+  if ((placeCount?.count||0)>0 && settings && (settings.mode!==input.mode ||
+      settings.proposal_deadline!==input.proposalDeadline || settings.vote_deadline!==input.voteDeadline ||
+      settings.meeting_date!==input.meetingDate))
+    throw new ApiError('장소 추천 또는 투표가 시작된 뒤에는 모임 유형과 장소 투표 일정을 변경할 수 없습니다.',409);
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE events SET title=?,description=?,location=?,start_date=?,end_date=?,deadline=?,status=?,public_names=?,allowed_dates=?,updated_at=? WHERE id=?`)
+      .bind(input.title,input.description,input.location,input.startDate,input.endDate,input.deadline,input.status,
+        1,JSON.stringify(input.allowedDates),new Date().toISOString(),input.id),
+    env.DB.prepare(`INSERT INTO event_settings(event_id,mode,proposal_deadline,vote_deadline,meeting_date) VALUES(?,?,?,?,?)
+      ON CONFLICT(event_id) DO UPDATE SET mode=excluded.mode,proposal_deadline=excluded.proposal_deadline,
+        vote_deadline=excluded.vote_deadline,meeting_date=excluded.meeting_date`)
+      .bind(input.id,input.mode,input.proposalDeadline,input.voteDeadline,input.meetingDate)
+  ]);
   return {ok:true,id:input.id,operation:'update'};
 }
 async function saveResponse(env, data) {
@@ -170,6 +237,8 @@ async function saveResponse(env, data) {
   if (!/^[a-f0-9]{64}$/i.test(token)) throw new ApiError('수정 토큰 형식이 올바르지 않습니다.');
   const event = await env.DB.prepare('SELECT * FROM events WHERE id=?').bind(eventId).first();
   if (!event) throw new ApiError('모임이 존재하지 않습니다.',404);
+  const settings=await env.DB.prepare('SELECT mode FROM event_settings WHERE event_id=?').bind(eventId).first();
+  if (settings?.mode==='place') throw new ApiError('장소 전용 모임에는 날짜 응답을 제출할 수 없습니다.',409);
   if (!isOpen(event)) throw new ApiError('참여가 마감된 모임입니다.',409);
   validateDates(event,dates);
   await ensureTokenTable(env);
@@ -228,6 +297,71 @@ async function recoverEvent(env, request, data) {
   if (foundIds.size !== 1) throw new ApiError('일치하는 모임을 확인하지 못했습니다. 입력 정보를 확인하거나 주최자에게 링크를 요청해 주세요.',404);
   return {ok:true,eventId:[...foundIds][0]};
 }
+// Invitation-link only. Each display name can propose one place. Vote changes require
+// possession of the token created on the same browser; names alone do not grant edit access.
+async function settingsFor(env,eventId) {
+  if (!validId(eventId)) throw new ApiError('모임 ID를 확인해 주세요.',400);
+  const row=await env.DB.prepare(`SELECT e.id,e.status,e.deadline,s.mode,s.proposal_deadline,s.vote_deadline
+    FROM events e LEFT JOIN event_settings s ON e.id=s.event_id WHERE e.id=?`).bind(eventId).first();
+  if (!row) throw new ApiError('모임이 존재하지 않습니다.',404);
+  return row;
+}
+function cleanPlaceName(value,max=90) {
+  const text=bounded(value,max,true).replace(/\s+/g,' ');
+  if (text.length < 2 || /^[=+@-]/.test(text)) throw new ApiError('이름은 2자 이상으로 입력해 주세요.');
+  return text;
+}
+async function proposePlace(env,data) {
+  const eventId=String(data.eventId||''),id=String(data.id||'');
+  if (!validId(eventId) || !validNewId(id)) throw new ApiError('모임·추천 ID를 확인해 주세요.');
+  const row=await settingsFor(env,eventId);
+  if (placeStage(row)!=='proposals') throw new ApiError('지금은 장소를 추천할 수 있는 기간이 아닙니다.',409);
+  const proposer=cleanPlaceName(data.name,30),placeName=cleanPlaceName(data.placeName,90);
+  const comment=bounded(data.comment,280,false,true);
+  const lat=Number(data.lat),lng=Number(data.lng);
+  if (typeof data.lat!=='number' || typeof data.lng!=='number' || !Number.isFinite(lat) || !Number.isFinite(lng) ||
+      lat< -90 || lat>90 || lng< -180 || lng>180) throw new ApiError('지도에 핀을 찍어 좌표를 선택해 주세요.');
+  const count=await env.DB.prepare('SELECT COUNT(*) AS count FROM place_proposals WHERE event_id=?').bind(eventId).first();
+  if ((count?.count||0)>=200) throw new ApiError('장소 추천은 모임당 최대 200개입니다.',429);
+  const exists=await env.DB.prepare('SELECT id FROM place_proposals WHERE event_id=? AND proposer_name=? COLLATE NOCASE').bind(eventId,proposer).first();
+  if (exists)throw new ApiError('이 이름으로 추천된 장소가 이미 있습니다. 한 사람당 한 곳씩 추천해 주세요.',409);
+  try {
+    await env.DB.prepare(`INSERT INTO place_proposals(id,event_id,proposer_name,place_name,comment,lat,lng,created_at)
+      VALUES(?,?,?,?,?,?,?,?)`).bind(id,eventId,proposer,placeName,comment,lat,lng,new Date().toISOString()).run();
+  }catch(error) {
+    if (/UNIQUE constraint/.test(String(error)))throw new ApiError('이미 같은 이름으로 추천했습니다.',409);
+    throw error;
+  }
+  return {ok:true,id,eventId};
+}
+async function votePlace(env,data) {
+  const eventId=String(data.eventId||''),proposalId=String(data.proposalId||'');
+  if (!validId(eventId) || !validId(proposalId))throw new ApiError('모임 또는 후보 장소 ID가 잘못됐습니다.');
+  const row=await settingsFor(env,eventId);
+  if (placeStage(row)!=='voting')throw new ApiError('지금은 장소 투표 기간이 아닙니다.',409);
+  const name=cleanPlaceName(data.name,30),token=String(data.token||'');
+  if (!/^[a-f0-9]{64}$/i.test(token))throw new ApiError('투표 인증 정보가 올바르지 않습니다.');
+  const exists=await env.DB.prepare('SELECT id FROM place_proposals WHERE id=? AND event_id=?').bind(proposalId,eventId).first();
+  if (!exists)throw new ApiError('해당 모임의 장소 후보가 아닙니다.',404);
+  const old=await env.DB.prepare('SELECT token_hash FROM place_votes WHERE event_id=? AND voter_name=? COLLATE NOCASE').bind(eventId,name).first();
+  const hash=await tokenHash(token),now=new Date().toISOString();
+  if (old) {
+    if (!safeCompare(old.token_hash,hash))throw new ApiError('이미 다른 기기에서 이 이름으로 투표했습니다. 처음 투표한 기기에서 변경해 주세요.',409);
+    await env.DB.prepare('UPDATE place_votes SET proposal_id=?,updated_at=? WHERE event_id=? AND voter_name=? COLLATE NOCASE')
+      .bind(proposalId,now,eventId,name).run();
+    return {ok:true,eventId,operation:'update'};
+  }
+  const count=await env.DB.prepare('SELECT COUNT(*) AS count FROM place_votes WHERE event_id=?').bind(eventId).first();
+  if ((count?.count||0)>=300)throw new ApiError('장소 투표는 모임당 최대 300명입니다.',429);
+  try{
+    await env.DB.prepare(`INSERT INTO place_votes(event_id,voter_name,proposal_id,token_hash,created_at,updated_at)
+      VALUES(?,?,?,?,?,?)`).bind(eventId,name,proposalId,hash,now,now).run();
+  }catch(error) {
+    if(/UNIQUE constraint/.test(String(error)))throw new ApiError('이 이름으로 이미 투표했습니다.',409);
+    throw error;
+  }
+  return {ok:true,eventId,operation:'create'};
+}
 function corsHeaders(request) {
   const origin=request.headers.get('Origin');
   const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin','X-Content-Type-Options':'nosniff'};
@@ -260,7 +394,7 @@ export default {
       const origin=request.headers.get('Origin');
       if (origin && !ALLOWED_ORIGINS.has(origin)) throw new ApiError('허용되지 않은 웹사이트입니다.',403);
       if (request.method==='GET' && path==='/health') {
-        const result=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('events','responses') ORDER BY name").all();
+        const result=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('events','responses','response_tokens','event_settings','place_proposals','place_votes','recovery_attempts') ORDER BY name").all();
         return json(request,{ok:true,database:'connected',tables:(result.results||[]).map(r=>r.name)});
       }
       // Never return event identifiers or vote details in an unauthenticated bulk API.
@@ -268,10 +402,12 @@ export default {
       if (request.method==='GET' && /^\/api\/events\/[a-f0-9-]{32,36}$/i.test(path)) {
         return json(request,await readEvent(env,decodeURIComponent(path.slice('/api/events/'.length))));
       }
+      if (request.method==='POST' && path==='/api/places/propose') return json(request,await proposePlace(env,await readBody(request)));
+      if (request.method==='POST' && path==='/api/places/vote') return json(request,await votePlace(env,await readBody(request)));
       if (request.method==='POST' && path==='/api/recover') return json(request,await recoverEvent(env,request,await readBody(request)));
       if (request.method==='POST' && path==='/api/events') return json(request,await saveEvent(env,await readBody(request)));
       if (request.method==='POST' && path==='/api/responses') return json(request,await saveResponse(env,await readBody(request)));
-      if (request.method==='GET' && path==='/') return json(request,{ok:true,service:'year-end-together-api',routes:['/health','/api/events/:id','/api/recover']});
+      if (request.method==='GET' && path==='/') return json(request,{ok:true,service:'year-end-together-api',routes:['/health','/api/events/:id','/api/recover','/api/places/propose','/api/places/vote'],version:'2026-places-v1'});
       throw new ApiError('지원하지 않는 주소 또는 요청 방식입니다.',404);
     }catch(error) {
       if (!(error instanceof ApiError)) console.error('Worker error',error);

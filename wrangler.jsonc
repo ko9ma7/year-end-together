@@ -1,0 +1,13 @@
+﻿{
+    "name":  "floral-thunder-c7b0",
+    "main":  "cloudflare/worker.js",
+    "compatibility_date":  "2026-11-16",
+    "workers_dev":  true,
+    "d1_databases":  [
+                         {
+                             "binding":  "DB",
+                             "database_name":  "year-end-together-db",
+                             "database_id":  "8f929a39-713a-49cf-9270-1f7c187b9148"
+                         }
+                     ]
+}
